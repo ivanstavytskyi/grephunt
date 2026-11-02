@@ -1,0 +1,383 @@
+[
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "dockerfile.security.missing-user.missing-user",
+    "title": "By not specifying a USER, a program in the container may run as 'root'. This is a security hazard. If an attacker can control a process running as root, they may have control over the container. Ensure that the last USER in a Dockerfile is a USER other than 'root'.",
+    "message": "By not specifying a USER, a program in the container may run as 'root'. This is a security hazard. If an attacker can control a process running as root, they may have control over the container. Ensure that the last USER in a Dockerfile is a USER other than 'root'.",
+    "severity": "high",
+    "severity_original": "error",
+    "cwe": [
+      "CWE-250"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A04:2021 - Insecure Design",
+      "OWASP-A06:2025 - Insecure Design"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "Dockerfile",
+      "start_line": 4,
+      "end_line": 4,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "CMD [\"python\", \"/app/app.py\"]",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/0",
+    "help_uri": "https://semgrep.dev/r/dockerfile.security.missing-user.missing-user",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:Dockerfile:4:CWE-250",
+    "fingerprint": "code:Dockerfile:CWE-250"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+    "title": "Avoiding SQL string concatenation: untrusted input concatenated with raw SQL query can result in SQL Injection. In order to execute raw query safely, prepared statement should be used. SQLAlchemy provides TextualSQL to easily used prepared statement with named parameters. For complex SQL composition, use SQL Expression Language or Schema Definition Language. In most cases, SQLAlchemy ORM will be a better option.",
+    "message": "Avoiding SQL string concatenation: untrusted input concatenated with raw SQL query can result in SQL Injection. In order to execute raw query safely, prepared statement should be used. SQLAlchemy provides TextualSQL to easily used prepared statement with named parameters. For complex SQL composition, use SQL Expression Language or Schema Definition Language. In most cases, SQLAlchemy ORM will be a better option.",
+    "severity": "high",
+    "severity_original": "error",
+    "cwe": [
+      "CWE-89"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A01:2017 - Injection",
+      "OWASP-A03:2021 - Injection",
+      "OWASP-A05:2025 - Injection"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 17,
+      "end_line": 17,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    return str(conn.execute(\"SELECT * FROM users WHERE id = '\" + uid + \"'\").fetchall())",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/1",
+    "help_uri": "https://semgrep.dev/r/python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:17:CWE-89",
+    "fingerprint": "code:app.py:CWE-89"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.django.security.injection.tainted-sql-string.tainted-sql-string",
+    "title": "Detected user input used to manually construct a SQL string. This is usually bad practice because manual construction could accidentally result in a SQL injection. An attacker could use a SQL injection to steal or modify contents of the database. Instead, use a parameterized query which is available by default in most database engines. Alternatively, consider using the Django object-relational mappers (ORM) instead of raw SQL queries.",
+    "message": "Detected user input used to manually construct a SQL string. This is usually bad practice because manual construction could accidentally result in a SQL injection. An attacker could use a SQL injection to steal or modify contents of the database. Instead, use a parameterized query which is available by default in most database engines. Alternatively, consider using the Django object-relational mappers (ORM) instead of raw SQL queries.",
+    "severity": "high",
+    "severity_original": "error",
+    "cwe": [
+      "CWE-915"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A08:2021 - Software and Data Integrity Failures",
+      "OWASP-A08:2025 - Software or Data Integrity Failures"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 17,
+      "end_line": 17,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    return str(conn.execute(\"SELECT * FROM users WHERE id = '\" + uid + \"'\").fetchall())",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/2",
+    "help_uri": "https://semgrep.dev/r/python.django.security.injection.tainted-sql-string.tainted-sql-string",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:17:CWE-915",
+    "fingerprint": "code:app.py:CWE-915"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.flask.security.injection.tainted-sql-string.tainted-sql-string",
+    "title": "Detected user input used to manually construct a SQL string. This is usually bad practice because manual construction could accidentally result in a SQL injection. An attacker could use a SQL injection to steal or modify contents of the database. Instead, use a parameterized query which is available by default in most database engines. Alternatively, consider using an object-relational mapper (ORM) such as SQLAlchemy which will protect your queries.",
+    "message": "Detected user input used to manually construct a SQL string. This is usually bad practice because manual construction could accidentally result in a SQL injection. An attacker could use a SQL injection to steal or modify contents of the database. Instead, use a parameterized query which is available by default in most database engines. Alternatively, consider using an object-relational mapper (ORM) such as SQLAlchemy which will protect your queries.",
+    "severity": "high",
+    "severity_original": "error",
+    "cwe": [
+      "CWE-704"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A01:2017 - Injection",
+      "OWASP-A03:2021 - Injection",
+      "OWASP-A05:2025 - Injection"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 17,
+      "end_line": 17,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    return str(conn.execute(\"SELECT * FROM users WHERE id = '\" + uid + \"'\").fetchall())",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/3",
+    "help_uri": "https://semgrep.dev/r/python.flask.security.injection.tainted-sql-string.tainted-sql-string",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:17:CWE-704",
+    "fingerprint": "code:app.py:CWE-704"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.flask.security.injection.subprocess-injection.subprocess-injection",
+    "title": "Detected user input entering a `subprocess` call unsafely. This could result in a command injection vulnerability. An attacker could use this vulnerability to execute arbitrary commands on the host, which allows them to download malware, scan sensitive data, or run any command they wish on the server. Do not let users choose the command to run. In general, prefer to use Python API versions of system commands. If you must use subprocess, use a dictionary to allowlist a set of commands.",
+    "message": "Detected user input entering a `subprocess` call unsafely. This could result in a command injection vulnerability. An attacker could use this vulnerability to execute arbitrary commands on the host, which allows them to download malware, scan sensitive data, or run any command they wish on the server. Do not let users choose the command to run. In general, prefer to use Python API versions of system commands. If you must use subprocess, use a dictionary to allowlist a set of commands.",
+    "severity": "high",
+    "severity_original": "error",
+    "cwe": [
+      "CWE-78"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A01:2017 - Injection",
+      "OWASP-A03:2021 - Injection",
+      "OWASP-A05:2025 - Injection"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 23,
+      "end_line": 23,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    return subprocess.check_output(\"ping -c 1 \" + host, shell=True)",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/4",
+    "help_uri": "https://semgrep.dev/r/python.flask.security.injection.subprocess-injection.subprocess-injection",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:23:CWE-78",
+    "fingerprint": "code:app.py:CWE-78"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.flask.security.insecure-deserialization.insecure-deserialization",
+    "title": "Detected the use of an insecure deserialization library in a Flask route. These libraries are prone to code execution vulnerabilities. Ensure user data does not enter this function. To fix this, try to avoid serializing whole objects. Consider instead using a serializer such as JSON.",
+    "message": "Detected the use of an insecure deserialization library in a Flask route. These libraries are prone to code execution vulnerabilities. Ensure user data does not enter this function. To fix this, try to avoid serializing whole objects. Consider instead using a serializer such as JSON.",
+    "severity": "high",
+    "severity_original": "error",
+    "cwe": [
+      "CWE-502"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A08:2017 - Insecure Deserialization",
+      "OWASP-A08:2021 - Software and Data Integrity Failures",
+      "OWASP-A08:2025 - Software or Data Integrity Failures"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 28,
+      "end_line": 28,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    return str(pickle.loads(request.data))",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/7",
+    "help_uri": "https://semgrep.dev/r/python.flask.security.insecure-deserialization.insecure-deserialization",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:28:CWE-502",
+    "fingerprint": "code:app.py:CWE-502"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.flask.security.injection.user-eval.eval-injection",
+    "title": "Detected user data flowing into eval. This is code injection and should be avoided.",
+    "message": "Detected user data flowing into eval. This is code injection and should be avoided.",
+    "severity": "high",
+    "severity_original": "error",
+    "cwe": [
+      "CWE-95"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A03:2021 - Injection",
+      "OWASP-A05:2025 - Injection"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 33,
+      "end_line": 33,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    return str(eval(request.args.get(\"expr\")))",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/10",
+    "help_uri": "https://semgrep.dev/r/python.flask.security.injection.user-eval.eval-injection",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:33:CWE-95",
+    "fingerprint": "code:app.py:CWE-95"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host",
+    "title": "Running flask app with host 0.0.0.0 could expose the server publicly.",
+    "message": "Running flask app with host 0.0.0.0 could expose the server publicly.",
+    "severity": "medium",
+    "severity_original": "warning",
+    "cwe": [
+      "CWE-668"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A01:2021 - Broken Access Control",
+      "OWASP-A01:2025 - Broken Access Control"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 37,
+      "end_line": 37,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    app.run(debug=True, host=\"0.0.0.0\")",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/12",
+    "help_uri": "https://semgrep.dev/r/python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:37:CWE-668",
+    "fingerprint": "code:app.py:CWE-668"
+  },
+  {
+    "module": "sast",
+    "category": "code",
+    "tool": "semgrep",
+    "tool_version": "1.180.0",
+    "tools": [
+      "semgrep"
+    ],
+    "rule_id": "python.flask.security.audit.debug-enabled.debug-enabled",
+    "title": "Detected Flask app with debug=True. Do not deploy to production with this flag enabled as it will leak sensitive information. Instead, consider using Flask configuration variables or setting 'debug' using system environment variables.",
+    "message": "Detected Flask app with debug=True. Do not deploy to production with this flag enabled as it will leak sensitive information. Instead, consider using Flask configuration variables or setting 'debug' using system environment variables.",
+    "severity": "medium",
+    "severity_original": "warning",
+    "cwe": [
+      "CWE-489"
+    ],
+    "cve": [],
+    "owasp": [
+      "OWASP-A06:2017 - Security Misconfiguration"
+    ],
+    "location": {
+      "kind": "file",
+      "path": "app.py",
+      "start_line": 37,
+      "end_line": 37,
+      "url": null,
+      "parameter": null,
+      "host": null,
+      "port": null
+    },
+    "snippet": "    app.run(debug=True, host=\"0.0.0.0\")",
+    "evidence": "SARIF region",
+    "status": "open",
+    "raw_ref": "semgrep.sarif#/runs/0/results/13",
+    "help_uri": "https://semgrep.dev/r/python.flask.security.audit.debug-enabled.debug-enabled",
+    "package": null,
+    "installed_version": null,
+    "fixed_version": null,
+    "correlation_key": "code:app.py:37:CWE-489",
+    "fingerprint": "code:app.py:CWE-489"
+  }
+]

@@ -1,0 +1,23 @@
+name: semgrep
+module: sast
+binary: semgrep
+image: semgrep/semgrep:1.180.0
+version: "1.180.0"
+timeout_sec: 1200
+# The descriptor allows network. The hook turns it on only for registry rules (p/, r/).
+network: true
+prepare_network: false
+# The image writes its cache under HOME. HOME is /tmp, and the process is not root.
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+output_filename: semgrep.sarif
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cache_volumes: []
+cap_drop:
+  - ALL
+no_new_privileges: true

@@ -1,0 +1,25 @@
+name: trivy
+module: sast
+binary: trivy
+image: aquasec/trivy:0.76.0
+version: "0.76.0"
+timeout_sec: 1200
+# The scan itself has no network: the database is already in the cache. Network is only for the database warmup.
+network: false
+prepare_network: true
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+output_filename: trivy.sarif
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  TRIVY_CACHE_DIR: /cache
+cache_volumes:
+  - name: grephunt-trivy-cache
+    path: /cache
+cap_drop:
+  - ALL
+no_new_privileges: true
