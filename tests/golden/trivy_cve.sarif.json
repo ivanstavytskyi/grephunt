@@ -1,0 +1,43 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Trivy",
+          "version": "0.76.0",
+          "rules": [
+            {
+              "id": "CVE-2021-44228",
+              "name": "LanguageSpecificPackageVulnerability",
+              "shortDescription": {"text": "log4j: remote code execution"},
+              "defaultConfiguration": {"level": "error"},
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2021-44228",
+              "properties": {
+                "security-severity": "10.0",
+                "tags": ["vulnerability", "security", "CRITICAL"]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2021-44228",
+          "level": "error",
+          "message": {
+            "text": "Package: log4j-core\nInstalled Version: 2.14.1\nVulnerability CVE-2021-44228\nSeverity: CRITICAL\nFixed Version: 2.15.0\nLink: [CVE-2021-44228](https://avd.aquasec.com/nvd/cve-2021-44228)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "pom.xml"},
+                "region": {"startLine": 40, "endLine": 44}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

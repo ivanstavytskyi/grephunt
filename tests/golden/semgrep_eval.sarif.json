@@ -1,0 +1,45 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Semgrep OSS",
+          "semanticVersion": "1.180.0",
+          "rules": [
+            {
+              "id": "python.lang.security.audit.eval-detected",
+              "shortDescription": {"text": "Semgrep Finding: python.lang.security.audit.eval-detected"},
+              "fullDescription": {"text": "Use of eval"},
+              "defaultConfiguration": {"level": "error"},
+              "helpUri": "https://semgrep.dev/r/python.lang.security.audit.eval-detected",
+              "properties": {
+                "tags": ["CWE-95: Eval Injection", "security"],
+                "security-severity": "9.8"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "python.lang.security.audit.eval-detected",
+          "level": "error",
+          "message": {"text": "eval() on user input can execute arbitrary code."},
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "/src/app.py"},
+                "region": {
+                  "startLine": 33,
+                  "endLine": 33,
+                  "snippet": {"text": "return str(eval(request.args.get(\"expr\")))"}
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

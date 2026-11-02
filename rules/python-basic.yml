@@ -1,0 +1,62 @@
+# A small set of project rules. Shows that GrepHunt can run its own rules, not only upstream packs.
+rules:
+  - id: sql-injection-string-concat
+    languages: [python]
+    severity: ERROR
+    message: SQL is built by string concatenation. This may be SQL injection. Use bound parameters.
+    patterns:
+      - pattern-either:
+          - pattern: $CONN.execute("..." + $X + ...)
+          - pattern: $CONN.execute(f"...")
+    metadata:
+      cwe: ["CWE-89: Improper Neutralization of Special Elements used in an SQL Command"]
+      owasp: ["A03:2021 - Injection"]
+      security-severity: "9.0"
+
+  - id: subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess is called with shell=True and a dynamic string. This may be OS command injection.
+    pattern-either:
+      - pattern: subprocess.$F("..." + $X, ..., shell=True, ...)
+      - pattern: os.system("..." + $X)
+    metadata:
+      cwe: ["CWE-78: OS Command Injection"]
+      owasp: ["A03:2021 - Injection"]
+      security-severity: "9.8"
+
+  - id: eval-user-input
+    languages: [python]
+    severity: ERROR
+    message: eval() on user input can execute arbitrary code.
+    pattern: eval(request.$ATTR.get(...))
+    metadata:
+      cwe: ["CWE-95: Eval Injection"]
+      security-severity: "9.8"
+
+  - id: insecure-pickle-loads
+    languages: [python]
+    severity: ERROR
+    message: pickle.loads() on untrusted data leads to remote code execution.
+    pattern: pickle.loads(...)
+    metadata:
+      cwe: ["CWE-502: Deserialization of Untrusted Data"]
+      security-severity: "8.1"
+
+  - id: hardcoded-secret
+    languages: [python]
+    severity: WARNING
+    message: A secret is hard-coded in source.
+    pattern-regex: (?i)(secret|password|api_key|token)\w*\s*=\s*["'][^"']{8,}["']
+    metadata:
+      cwe: ["CWE-798: Use of Hard-coded Credentials"]
+      security-severity: "6.5"
+
+  - id: flask-debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: Flask is started with debug=True. In production the interactive debugger is remote code execution.
+    pattern: $APP.run(..., debug=True, ...)
+    metadata:
+      cwe: ["CWE-489: Active Debug Code"]
+      security-severity: "7.5"
