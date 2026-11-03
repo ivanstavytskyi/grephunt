@@ -122,6 +122,44 @@ export async function startScan(input: {
   return response.json();
 }
 
+export type ScannerAdvice = {
+  recommended: string[];
+  reasons: Record<string, string>;
+  summary?: string;
+  source?: string;
+  note?: string;
+  stack?: { frameworks?: string[]; datastores?: string[]; languages?: Record<string, number> };
+  label?: string;
+};
+
+export async function analyzeTarget(input: {
+  archive?: File | null;
+  folder?: File[] | null;
+  githubUrl?: string;
+  ai?: { provider: string; apiKey: string; model: string } | null;
+}): Promise<ScannerAdvice> {
+  const body = new FormData();
+  if (input.githubUrl && input.githubUrl.trim()) {
+    body.set("github_url", input.githubUrl.trim());
+  } else if (input.folder && input.folder.length > 0) {
+    body.set("folder_name", input.folder[0].webkitRelativePath.split("/")[0] || "project");
+    for (const file of input.folder) {
+      body.append("files", file);
+      body.append("relative_paths", file.webkitRelativePath || file.name);
+    }
+  } else if (input.archive) {
+    body.set("archive", input.archive);
+  }
+  if (input.ai) {
+    body.set("provider", input.ai.provider);
+    body.set("api_key", input.ai.apiKey);
+    body.set("model", input.ai.model);
+  }
+  const response = await fetch("/api/analyze", { method: "POST", body });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
 export async function fetchLog(id: string): Promise<ScanEvent[]> {
   const response = await fetch(`/api/scans/${id}/log`);
   if (!response.ok) throw new Error(await readError(response));

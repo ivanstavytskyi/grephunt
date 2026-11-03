@@ -668,6 +668,92 @@ def ai_poc(body: dict = Body()) -> dict:
     return {"text": text}
 
 
+@app.post("/api/analyze")
+async def analyze_target(
+    archive: UploadFile | None = File(default=None),
+    files: list[UploadFile] | None = File(default=None),
+    relative_paths: list[str] | None = Form(default=None),
+    folder_name: str | None = Form(default=None),
+    github_url: str | None = Form(default=None),
+    provider: str = Form(default=""),
+    api_key: str = Form(default=""),
+    model: str = Form(default=""),
+) -> dict:
+    """Prepare the target, build only the project map (no scanners), and recommend scanners for it."""
+    from grephunt.project_map import build_project_map
+    from grephunt.web_console.scanner_advice import recommend, recommend_with_ai
+
+    cleanup: Path | None = None
+    if github_url and github_url.strip():
+        try:
+            target, label, _, _ = await asyncio.to_thread(_download_github, github_url.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        cleanup = target
+    elif files:
+        target, label = await _save_folder(files, relative_paths or [], folder_name or "project")
+        cleanup = target
+    elif archive is not None and archive.filename and archive.filename.lower().endswith(".tar"):
+        raise HTTPException(status_code=400, detail="scanner recommendation needs source code; a container image has no project map")
+    elif archive is not None and archive.filename:
+        workspace = DATA_DIR / "uploads" / f"analyze-{uuid.uuid4().hex[:12]}"
+        workspace.mkdir(parents=True, exist_ok=True)
+        blob = workspace / "source.zip"
+        await _save_upload(archive, blob)
+        try:
+            safe_extract(blob, workspace / "tree")
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        target, label = _collapse_root(workspace / "tree"), Path(archive.filename).name
+        cleanup = workspace
+    else:
+        raise HTTPException(status_code=400, detail="choose a folder, a zip, or a GitHub repository first")
+
+    try:
+        project_map = await asyncio.to_thread(lambda: json.loads(build_project_map(target, label=label).model_dump_json()))
+    finally:
+        if cleanup and cleanup.exists():
+            import shutil
+
+            shutil.rmtree(cleanup, ignore_errors=True)
+
+    tools = list_tools()
+    if provider and api_key:
+        try:
+            result = await asyncio.to_thread(recommend_with_ai, provider, api_key, model, project_map, tools)
+        except (ValueError, ProviderError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        result = {**recommend(project_map, tools), "source": "deterministic", "summary": ""}
+    result["stack"] = project_map.get("stack") or {}
+    result["label"] = label
+    return result
+
+
+@app.post("/api/scans/{scan_id}/recommend-scanners")
+def recommend_scanners(scan_id: str, body: dict = Body()) -> dict:
+    """Recommend scanners for this project from its map. With an AI key, the model reviews the choice."""
+    from grephunt.web_console.scanner_advice import recommend, recommend_with_ai
+
+    project_map = get_project_map(scan_id)
+    if project_map is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    if not project_map:
+        try:
+            fresh = rebuild_project_map(scan_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        project_map = fresh if isinstance(fresh, dict) else {}
+    tools = list_tools()
+    provider = str(body.get("provider") or "")
+    if provider and body.get("api_key"):
+        try:
+            return recommend_with_ai(provider, str(body.get("api_key")), str(body.get("model") or ""), project_map, tools)
+        except (ValueError, ProviderError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {**recommend(project_map, tools), "source": "deterministic", "summary": ""}
+
+
 @app.post("/api/ai/scan-report")
 def ai_scan_report(body: dict = Body()) -> dict:
     scan = body.get("scan")

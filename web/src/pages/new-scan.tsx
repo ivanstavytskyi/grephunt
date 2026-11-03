@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@/lib/nav";
-import { Archive, Container, FolderOpen } from "lucide-react";
+import { Archive, Container, FolderOpen, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { SnykConnect } from "@/components/snyk-connect";
 import { SelectedScannerParams } from "@/components/selected-scanner-params";
 import type { ScannerGroup, ToolInfo } from "@/api/types";
-import { fetchTools, startScan, type SnykStatus } from "@/lib/api";
+import { analyzeTarget, fetchTools, startScan, type ScannerAdvice, type SnykStatus } from "@/lib/api";
+import { readSavedAiKey } from "@/lib/ai-storage";
 import {
   buildInitialParams,
   paramsForScanners,
@@ -53,6 +54,9 @@ export function NewScanPage() {
   const zipInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const imageMode = imageFile !== null;
+  const [advising, setAdvising] = useState(false);
+  const [advice, setAdvice] = useState<ScannerAdvice | null>(null);
+  const [adviceError, setAdviceError] = useState("");
   const [snykConnected, setSnykConnected] = useState(false);
   const onSnyk = useCallback((status: SnykStatus) => setSnykConnected(status.connected), []);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -291,6 +295,39 @@ export function NewScanPage() {
 
         <SnykConnect onChange={onSnyk} />
 
+        <SuggestScanners
+          advising={advising}
+          advice={advice}
+          error={adviceError}
+          disabled={imageMode}
+          onRun={async () => {
+            const github = form.getValues("github").trim();
+            if (!github && !zipFile && (!folder || folder.length === 0)) {
+              setAdviceError("Add a zip, a project folder, or a GitHub link first.");
+              return;
+            }
+            setAdvising(true);
+            setAdviceError("");
+            setAdvice(null);
+            try {
+              const saved = readSavedAiKey();
+              const result = await analyzeTarget({
+                archive: zipFile,
+                folder,
+                githubUrl: github,
+                ai: saved ? { provider: saved.provider, apiKey: saved.apiKey, model: saved.model } : null,
+              });
+              setAdvice(result);
+              const runnableRecommended = result.recommended.filter((name) => !cloudTools.includes(name));
+              if (runnableRecommended.length > 0) setSelected(runnableRecommended);
+            } catch (error) {
+              setAdviceError(error instanceof Error ? error.message : "Could not analyze the project");
+            } finally {
+              setAdvising(false);
+            }
+          }}
+        />
+
         <ScannerPicker
           tools={tools.data ?? []}
           selected={selected}
@@ -359,6 +396,54 @@ function UploadCard({
         <span className="mt-1 text-xs leading-5 text-ink-muted">{hint}</span>
         {footer}
       </button>
+    </div>
+  );
+}
+
+function SuggestScanners({ advising, advice, error, disabled, onRun }: {
+  advising: boolean;
+  advice: ScannerAdvice | null;
+  error: string;
+  disabled: boolean;
+  onRun: () => void;
+}) {
+  if (disabled) return null;
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        disabled={advising}
+        onClick={onRun}
+        title="Build the project map and recommend the scanners that fit this project. With an AI key, the model reviews the choice."
+        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-signal/50 bg-ink-panel px-4 text-sm font-medium text-ink-text hover:bg-signal/10 disabled:opacity-40"
+      >
+        <Wand2 className="size-4" />
+        {advising ? "Analyzing the project…" : "Suggest scanners for this project"}
+      </button>
+      {error && <p className="text-xs text-rose-200">{error}</p>}
+      {advice && (
+        <div className="space-y-2 rounded-lg border border-ink-line bg-ink-panel p-3 text-xs">
+          <p className="text-[11px] uppercase tracking-wide text-ink-muted">
+            Recommended {advice.source === "ai" ? "· reviewed by AI" : "· from the project map"}
+            {advice.label ? ` · ${advice.label}` : ""} — selected below
+          </p>
+          {advice.summary && <p className="text-ink-text/90">{advice.summary}</p>}
+          {(advice.stack?.frameworks?.length || advice.stack?.datastores?.length) ? (
+            <p className="text-ink-muted">
+              Stack: {[...(advice.stack?.frameworks ?? []), ...(advice.stack?.datastores ?? [])].join(", ")}
+            </p>
+          ) : null}
+          <ul className="space-y-1">
+            {advice.recommended.map((name) => (
+              <li key={name} className="flex gap-2">
+                <span className="w-28 shrink-0 font-mono text-ink-text">{name}</span>
+                <span className="text-ink-muted">{advice.reasons[name]}</span>
+              </li>
+            ))}
+          </ul>
+          {advice.note && <p className="text-amber-200/80">{advice.note}</p>}
+        </div>
+      )}
     </div>
   );
 }
