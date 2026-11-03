@@ -16,6 +16,7 @@ from grephunt.report_output.json_export import write_findings_json
 from grephunt.database.tables import EventRow, FindingRow, ScanRow, TaskRow, make_session_factory
 from grephunt.finding_model.record import ScanResult
 from grephunt.scanner_catalog.parameter_schema import validate_scan_params
+from grephunt.web_console.scan_source_context import infer_github_from_label
 from grephunt.scanner_catalog.registry import load_tools, load_ui_meta
 from grephunt.execution.docker import purge_stale_grephunt_containers
 from grephunt.web_console.event_sink import EventSink
@@ -77,6 +78,8 @@ def create_scan(
     params: dict[str, dict] | None = None,
     target_kind: str = "source",
     image_format: str = "docker",
+    source_repo_url: str | None = None,
+    source_ref: str | None = None,
 ) -> str:
     known = load_tools()
     unknown = [name for name in scanners if name not in known]
@@ -93,6 +96,8 @@ def create_scan(
         target_path=str(target),
         status="running",
         run_params=params_json,
+        source_repo_url=source_repo_url,
+        source_ref=source_ref,
     )
     scan_root = _scan_dir(scan_id)
     meta = {
@@ -103,6 +108,8 @@ def create_scan(
         "scanners": scanners,
         "params": validated,
         "status": "running",
+        "source_repo_url": source_repo_url,
+        "source_ref": source_ref,
     }
     (scan_root / "scan.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     with session_factory()() as session:
@@ -349,4 +356,22 @@ def _scan_dict(row: ScanRow) -> dict:
         "finding_count": row.finding_count,
         "error": row.error,
         "run_params": _load_run_params(row),
+        "source_repo_url": (
+            row.source_repo_url
+            or _source_from_meta(row.id, "source_repo_url")
+            or infer_github_from_label(row.target_label)
+        ),
+        "source_ref": row.source_ref or _source_from_meta(row.id, "source_ref") or "main",
     }
+
+
+def _source_from_meta(scan_id: str, key: str) -> str | None:
+    path = DATA_DIR / "scans" / scan_id / "scan.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = payload.get(key)
+        return value if isinstance(value, str) and value.strip() else None
+    except (json.JSONDecodeError, OSError):
+        return None

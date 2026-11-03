@@ -55,6 +55,7 @@ syft:
   languages: Project manifests and container images
   purpose: Generate a CycloneDX SBOM (no vulnerability findings)
 snyk-code:
+  # Requires Snyk Code enabled for your Snyk organization (paid/feature flag).
   group: code
   languages: Java, JavaScript, Python, and other Snyk-supported stacks
   purpose: Snyk static analysis (runs in Snyk cloud; connect an account first)

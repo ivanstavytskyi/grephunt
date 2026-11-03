@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import time
 import uuid
@@ -288,15 +289,32 @@ class ScannerTool:
                 tool_version=version, image=self.descriptor.image, error=tail,
             )
 
-        findings = parse_sarif(
-            sarif_path,
-            tool=self.name,
-            project_root=project,
-            module=Module(self.descriptor.module),
-            fallback_version=version,
-            refine=self.hook.refine_finding,
-            trust_reported_version=self.descriptor.trust_reported_version,
-        )
+        try:
+            findings = parse_sarif(
+                sarif_path,
+                tool=self.name,
+                project_root=project,
+                module=Module(self.descriptor.module),
+                fallback_version=version,
+                refine=self.hook.refine_finding,
+                trust_reported_version=self.descriptor.trust_reported_version,
+            )
+        except json.JSONDecodeError as exc:
+            size = sarif_path.stat().st_size if sarif_path.is_file() else 0
+            preview = sarif_path.read_text(encoding="utf-8", errors="replace")[:200].strip() if size else ""
+            hint = "The scanner wrote an empty or non-JSON report file."
+            if size == 0:
+                hint = "The scanner did not write a SARIF report (empty output file)."
+            message = f"{hint} ({exc.msg})"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
+            return TaskRun(
+                tool=self.name,
+                status=TaskStatus.FAILED,
+                duration_sec=duration,
+                tool_version=version,
+                image=self.descriptor.image,
+                error=f"{message}\n{preview}".strip(),
+            )
         redact_sarif_file(sarif_path, secret_result_refs(findings))
         if raw_path is not None and self.descriptor.category is Category.SECRET:
             # The tool's own report holds the values. The converted, masked SARIF replaces it.

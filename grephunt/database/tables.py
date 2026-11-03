@@ -34,6 +34,8 @@ class ScanRow(Base):
     partial: Mapped[int] = mapped_column(Integer, default=0)
     run_params: Mapped[str | None] = mapped_column(Text, nullable=True)
     """JSON: per-tool validated parameters used for this scan."""
+    source_repo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class TaskRow(Base):
@@ -101,6 +103,10 @@ def _migrate_schema(engine) -> None:
         names = {row[1] for row in rows}
         if "run_params" not in names:
             conn.execute(text("ALTER TABLE scans ADD COLUMN run_params TEXT"))
+        if "source_repo_url" not in names:
+            conn.execute(text("ALTER TABLE scans ADD COLUMN source_repo_url TEXT"))
+        if "source_ref" not in names:
+            conn.execute(text("ALTER TABLE scans ADD COLUMN source_ref TEXT"))
 
 
 def make_session_factory(engine=None):

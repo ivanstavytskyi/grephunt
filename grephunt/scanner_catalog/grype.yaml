@@ -32,6 +32,8 @@ target_mount: /src
 output_mount: /out
 environment:
   HOME: /tmp
+  # Grype writes listing temp files under TMPDIR; /tmp is not writable for uid 65534 in the scratch image.
+  TMPDIR: /var/grype-db
   GRYPE_DB_CACHE_DIR: /var/grype-db
   GRYPE_DB_AUTO_UPDATE: "false"
   # A refresh can fail (no network). Then the last database is used instead of failing the scan.

@@ -153,9 +153,10 @@ def _parse_github(url: str) -> tuple[str, str, str | None]:
     return match.group(1), match.group(2), match.group(3)
 
 
-def _download_github(url: str) -> tuple[Path, str]:
+def _download_github(url: str) -> tuple[Path, str, str, str]:
     owner, repo, branch = _parse_github(url)
     headers = {"User-Agent": "GrepHunt", "Accept": "application/vnd.github+json"}
+    canonical = f"https://github.com/{owner}/{repo}"
     if not branch:
         request = urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}", headers=headers)
         try:
@@ -187,7 +188,7 @@ def _download_github(url: str) -> tuple[Path, str]:
         import shutil
         shutil.rmtree(extracted)
     safe_extract(blob, extracted)
-    return _collapse_root(extracted), label
+    return _collapse_root(extracted), label, canonical, branch
 
 
 async def _save_upload(upload: UploadFile, destination: Path, limit: int = MAX_UPLOAD) -> None:
@@ -317,9 +318,14 @@ async def start(
     target_kind = "source"
     image_format = "docker"
 
+    source_repo_url: str | None = None
+    source_ref: str | None = None
+
     if github_url and github_url.strip():
         try:
-            target, label = await asyncio.to_thread(_download_github, github_url.strip())
+            target, label, source_repo_url, source_ref = await asyncio.to_thread(
+                _download_github, github_url.strip()
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     elif files:
@@ -392,6 +398,8 @@ async def start(
             params=raw_params,
             target_kind=target_kind,
             image_format=image_format,
+            source_repo_url=source_repo_url,
+            source_ref=source_ref,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

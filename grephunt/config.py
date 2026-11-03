@@ -34,3 +34,13 @@ def upload_limit_label(limit_bytes: int) -> str:
 
 def database_url() -> str:
     return os.environ.get("GREPHUNT_DATABASE_URL", f"sqlite:///{DB_PATH.as_posix()}")
+
+
+def ai_scan_findings_max() -> int | None:
+    """Max findings sent to the AI scan report. 0 or unset means send all."""
+    raw = os.environ.get("GREPHUNT_AI_SCAN_FINDINGS_MAX", "0").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None

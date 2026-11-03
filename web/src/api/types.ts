@@ -52,6 +52,8 @@ export type ScanSummary = {
   finding_count: number;
   error: string | null;
   run_params?: Record<string, Record<string, unknown>>;
+  source_repo_url?: string | null;
+  source_ref?: string | null;
   tasks?: TaskSummary[];
 };
 
