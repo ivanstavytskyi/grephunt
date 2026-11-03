@@ -19,12 +19,16 @@ def default_values(descriptor: ToolDescriptor) -> dict[str, Any]:
             values[spec.name] = list(spec.choices)
         elif spec.type == "string_list":
             values[spec.name] = []
+        elif spec.type == "bool":
+            values[spec.name] = False
         else:
             values[spec.name] = ""
     return values
 
 
 def _copy_default(spec: ParameterSpec) -> Any:
+    if spec.type == "bool":
+        return bool(spec.default)
     if spec.type == "multi" or spec.type == "string_list":
         if isinstance(spec.default, list):
             return [str(item) for item in spec.default]
@@ -48,7 +52,22 @@ def _valid_config_entry(value: str) -> bool:
     return True
 
 
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off", ""}
+
+
 def coerce_parameter(spec: ParameterSpec, raw: Any) -> Any:
+    if spec.type == "bool":
+        if raw is None:
+            return bool(spec.default)
+        if isinstance(raw, bool):
+            return raw
+        text = str(raw).strip().lower()
+        if text in _TRUE:
+            return True
+        if text in _FALSE:
+            return False
+        raise ValueError(f"{spec.name} must be true or false")
     if spec.type == "multi":
         items = raw
         if items is None:
@@ -140,7 +159,9 @@ def parameter_summaries(
         parts: list[str] = []
         for spec in descriptor.parameters:
             value = values.get(spec.name)
-            if spec.type == "multi" and isinstance(value, list):
+            if spec.type == "bool":
+                parts.append(f"{spec.label or spec.name}: {'on' if value else 'off'}")
+            elif spec.type == "multi" and isinstance(value, list):
                 parts.append(", ".join(value))
             elif spec.type == "string_list" and isinstance(value, list):
                 shown = value[:2]

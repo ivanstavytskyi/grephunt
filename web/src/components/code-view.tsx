@@ -77,7 +77,18 @@ function MarkChip({ mark, wrap = false }: { mark: SourceMark; wrap?: boolean }) 
   );
 }
 
+function scrollLineIntoCode(container: HTMLElement, target: HTMLElement) {
+  const top =
+    container.scrollTop +
+    target.getBoundingClientRect().top -
+    container.getBoundingClientRect().top -
+    container.clientHeight / 2 +
+    target.clientHeight / 2;
+  container.scrollTop = Math.max(0, top);
+}
+
 function SourceLines({ view, finding, compact }: { view: SourceView; finding: Finding; compact: boolean }) {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
   const focusRef = useRef<HTMLDivElement | null>(null);
   const marksByLine = useMemo(() => {
     const map = new Map<number, SourceMark[]>();
@@ -91,14 +102,21 @@ function SourceLines({ view, finding, compact }: { view: SourceView; finding: Fi
   }, [view.marks, finding.fingerprint, finding.correlation_key]);
 
   useEffect(() => {
-    focusRef.current?.scrollIntoView({ block: "center" });
+    const container = scrollerRef.current;
+    const target = focusRef.current;
+    if (!container || !target) return;
+    scrollLineIntoCode(container, target);
   }, [view]);
 
   const width = String(view.start + view.lines.length).length;
   const places = finding.lines && finding.lines.length > 1 ? new Set(finding.lines) : null;
   const calloutLine = places ? Math.min(...finding.lines!) : view.focus.end;
   return (
-    <div className={cn("overflow-auto rounded-md border border-ink-line bg-black/30 font-mono text-xs leading-5", compact ? "max-h-72" : "h-full")}>
+    <div
+      ref={scrollerRef}
+      data-code-scroll
+      className={cn("overflow-auto rounded-md border border-ink-line bg-black/30 font-mono text-xs leading-5", compact ? "max-h-72" : "h-full")}
+    >
       {view.lines.map((text, index) => {
         const number = view.start + index;
         const inFocus = places ? places.has(number) : number >= view.focus.start && number <= view.focus.end;
@@ -182,8 +200,9 @@ function CodeSheet({ scanId, finding, onClose }: { scanId: string; finding: Find
     .sort((left, right) => left.line - right.line);
   const jump = (line: number) => {
     const row = document.getElementById(`L${line}`);
-    if (!row) return;
-    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    const scroller = row?.closest("[data-code-scroll]");
+    if (!row || !(scroller instanceof HTMLElement)) return;
+    scrollLineIntoCode(scroller, row);
     row.animate([{ backgroundColor: "rgba(214,242,92,0.25)" }, { backgroundColor: "transparent" }], { duration: 1200 });
   };
   return (

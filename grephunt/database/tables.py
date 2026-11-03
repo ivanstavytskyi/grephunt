@@ -50,6 +50,8 @@ class TaskRow(Base):
     tool_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     image: Mapped[str | None] = mapped_column(String(256), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """JSON with live progress for the console: phase, timeline, container state, counts."""
 
 
 class FindingRow(Base):
@@ -120,6 +122,9 @@ def _migrate_schema(engine) -> None:
             conn.execute(text("ALTER TABLE scans ADD COLUMN source_repo_url TEXT"))
         if "source_ref" not in names:
             conn.execute(text("ALTER TABLE scans ADD COLUMN source_ref TEXT"))
+        task_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(tasks)")).fetchall()}
+        if task_columns and "details" not in task_columns:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN details TEXT"))
 
 
 def make_session_factory(engine=None):

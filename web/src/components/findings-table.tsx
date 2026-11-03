@@ -146,6 +146,17 @@ export const FindingsTable = memo(function FindingsTable({
                   {finding.ai_verdict && <VerdictTag verdict={finding.ai_verdict} />}
                   <span className={`truncate ${finding.ai_verdict === "false_positive" ? "text-ink-muted line-through decoration-ink-muted/50" : ""}`}>{title}</span>
                 </p>
+                {(finding.kev || typeof finding.epss === "number" || finding.secret_live === true) && (
+                  <p className="flex items-center gap-1.5 font-mono text-[10px] leading-4">
+                    {finding.kev && <span className="rounded bg-rose-500/20 px-1 text-rose-100" title="CISA Known Exploited Vulnerabilities">KEV</span>}
+                    {typeof finding.epss === "number" && (
+                      <span className="text-ink-muted" title="EPSS: probability of exploitation in the next 30 days">
+                        EPSS {(finding.epss * 100).toFixed(1)}%
+                      </span>
+                    )}
+                    {finding.secret_live === true && <span className="rounded bg-rose-500/20 px-1 text-rose-100">live key</span>}
+                  </p>
+                )}
                 {finding.context?.routes?.[0] && (
                   <p className="truncate font-mono text-[11px] leading-4 text-ink-muted" title="Route that reaches this code (project map)">
                     {finding.context.routes[0].label}

@@ -24,6 +24,8 @@ args:
   - --keep-local
 output_filename: kubescape.sarif
 ok_exit_codes: [0, 1]
+# Without Kubernetes manifests Kubescape leaves the report empty and exits 0.
+empty_output_skips: true
 target_mount: /src
 output_mount: /out
 environment:

@@ -8,7 +8,8 @@
 >
     <projectFiles>
         <directory name="/src"/>
-        <ignoreFiles>
+        <!-- allowMissingFiles: most projects have no vendor or node_modules; without it Psalm refuses the config. -->
+        <ignoreFiles allowMissingFiles="true">
             <directory name="/src/vendor"/>
             <directory name="/src/node_modules"/>
         </ignoreFiles>

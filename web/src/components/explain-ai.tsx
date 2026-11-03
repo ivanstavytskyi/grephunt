@@ -1,4 +1,5 @@
-import { FlaskConical, Settings, Sparkles } from "lucide-react";
+import { aiButton, aiIcon } from "@/components/ui/button";
+import { FileSearch, FlaskConical, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Finding } from "@/api/types";
 import { AiKeySettings } from "@/components/ai-key-settings";
@@ -55,12 +56,10 @@ export function ExplainAi({ finding }: { finding: Finding }) {
           type="button"
           disabled={!ready || busy !== null}
           onClick={() => void run("explain")}
-          className={`inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border text-sm ${
-            ready ? "border-signal/60 text-ink-text hover:bg-signal/10" : "cursor-not-allowed border-ink-line text-ink-muted"
-          }`}
+          className={`${aiButton} h-9 flex-1`}
           title={ready ? "Explain this finding" : "Add an API key first"}
         >
-          <Sparkles className="size-4" aria-hidden="true" />
+          <FileSearch className={`size-4 ${aiIcon}`} aria-hidden="true" />
           {busy === "explain" ? "Explaining…" : "Explain with AI"}
         </button>
         {canPoc && (

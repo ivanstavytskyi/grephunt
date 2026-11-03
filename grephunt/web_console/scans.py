@@ -7,6 +7,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sqlalchemy import func
+
 from grephunt.config import DATA_DIR, DEFAULT_TENANT
 from grephunt.scan_pipeline.events import EventType, ScanEvent
 from grephunt.scan_pipeline.options import ScanOptions
@@ -80,6 +82,8 @@ def create_scan(
     image_format: str = "docker",
     source_repo_url: str | None = None,
     source_ref: str | None = None,
+    skip_build_dirs: bool = True,
+    skip_dirs: list[str] | None = None,
 ) -> str:
     known = load_tools()
     unknown = [name for name in scanners if name not in known]
@@ -110,6 +114,8 @@ def create_scan(
         "status": "running",
         "source_repo_url": source_repo_url,
         "source_ref": source_ref,
+        "skip_build_dirs": skip_build_dirs,
+        "skip_dirs": skip_dirs,
     }
     (scan_root / "scan.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     with session_factory()() as session:
@@ -134,6 +140,8 @@ def create_scan(
             use_docker,
             target_kind,
             image_format,
+            skip_build_dirs,
+            skip_dirs,
         )
     )
     _TASKS[scan_id] = task
@@ -148,6 +156,8 @@ async def _execute(
     use_docker: bool,
     target_kind: str = "source",
     image_format: str = "docker",
+    skip_build_dirs: bool = True,
+    skip_dirs: list[str] | None = None,
 ) -> None:
     if use_docker:
         await asyncio.to_thread(purge_stale_grephunt_containers)
@@ -163,6 +173,8 @@ async def _execute(
         tenant_id=DEFAULT_TENANT,
         target_kind=target_kind,
         image_format=image_format,
+        skip_build_dirs=skip_build_dirs,
+        skip_dirs=skip_dirs,
     )
     if target_kind == "source":
         await _build_map(scan_id, target, sink)
@@ -172,6 +184,7 @@ async def _execute(
         partial = any(run.status.value != "success" for run in result.runs)
         await asyncio.to_thread(write_findings_json, result, _scan_dir(scan_id), params=params, scanners=scanners)
         await asyncio.to_thread(_save_result, scan_id, result, partial)
+        await asyncio.to_thread(_refresh_intel)
     except Exception as exc:
         sink(
             ScanEvent(
@@ -184,6 +197,16 @@ async def _execute(
         await asyncio.to_thread(_mark_failed, scan_id, repr(exc))
     finally:
         _TASKS.pop(scan_id, None)
+
+
+def _refresh_intel() -> None:
+    """Fetch KEV and EPSS when the cached copy is over a day old. Failure keeps the old copy."""
+    try:
+        from grephunt.intel.feeds import ensure_feeds
+
+        ensure_feeds()
+    except Exception:  # noqa: BLE001 - ranking data is optional, the scan result is not.
+        pass
 
 
 async def _build_map(scan_id: str, target: Path, sink) -> None:
@@ -358,6 +381,16 @@ def get_scan(scan_id: str) -> dict | None:
         if row is None or row.tenant_id != DEFAULT_TENANT:
             return None
         tasks = session.query(TaskRow).filter(TaskRow.scan_id == scan_id).all()
+        in_report: dict[str, dict[str, int]] = {}
+        counts = (
+            session.query(FindingRow.tool, FindingRow.severity, func.count(FindingRow.id))
+            .filter(FindingRow.scan_id == scan_id)
+            .group_by(FindingRow.tool, FindingRow.severity)
+            .all()
+        )
+        for tool, severity, count in counts:
+            in_report.setdefault(str(tool).lower(), {})[str(severity)] = int(count)
+        descriptors = _cached_descriptors()
         payload = _scan_dict(row)
         payload["tasks"] = [
             {
@@ -367,10 +400,58 @@ def get_scan(scan_id: str) -> dict | None:
                 "tool_version": task.tool_version,
                 "image": task.image,
                 "error": task.error,
+                "details": _task_details(task.details),
+                "report_findings": in_report.get(task.tool.lower(), {}),
+                "limits": _task_limits(descriptors.get(task.tool)),
             }
             for task in tasks
         ]
         return payload
+
+
+_DESCRIPTORS: tuple[float, dict] = (0.0, {})
+
+
+def _cached_descriptors() -> dict:
+    """The scan page polls every two seconds. The catalog YAML is read at most once a minute."""
+    global _DESCRIPTORS
+    import time
+
+    from grephunt.scanner_catalog.registry import load_descriptors
+
+    loaded_at, found = _DESCRIPTORS
+    if time.monotonic() - loaded_at > 60 or not found:
+        try:
+            found = load_descriptors()
+        except (OSError, ValueError):
+            found = {}
+        _DESCRIPTORS = (time.monotonic(), found)
+    return found
+
+
+def _task_details(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _task_limits(descriptor) -> dict:
+    if descriptor is None:
+        return {}
+    return {
+        "module": getattr(descriptor.module, "value", descriptor.module),
+        "category": descriptor.category.value if descriptor.category else None,
+        "cloud": descriptor.cloud,
+        "network": descriptor.network,
+        "timeout_sec": descriptor.timeout_sec,
+        "cpus": descriptor.cpus,
+        "memory": descriptor.memory,
+        "pids_limit": descriptor.pids_limit,
+    }
 
 
 def get_findings(scan_id: str) -> list[dict] | None:
@@ -387,6 +468,8 @@ def get_findings(scan_id: str) -> list[dict] | None:
         ]
         findings_out = [json.loads(item.body) for item in visible]
         running = row.status in {"running", "queued", "pending"}
+        target_path = row.target_path
+        run_params = row.run_params
     from grephunt.project_map.finding_context import attach_context, database_anchors
     from grephunt.web_console.source_view import load_map
 
@@ -396,6 +479,9 @@ def get_findings(scan_id: str) -> list[dict] | None:
         # Correlate on read so a running scan already shows one finding per problem.
         findings_out = _correlate_live(findings_out, database_anchors(project_map) if project_map else {})
     from grephunt.finding_model.exploitability import attach_exploitability
+    from grephunt.finding_model.tiers import assign_tiers
+    from grephunt.intel.feeds import enrich_findings
+    from grephunt.project_map.unreferenced import cached_not_executed
 
     verdicts = load_verdicts(scan_id)
     for finding in findings_out:
@@ -403,7 +489,23 @@ def get_findings(scan_id: str) -> list[dict] | None:
         if found:
             finding["ai_verdict"] = found.get("verdict")
             finding["ai_reason"] = found.get("reason") or ""
+    enrich_findings(findings_out)
+    try:
+        not_executed = cached_not_executed(_scan_dir(scan_id), project_map, Path(target_path or ""))
+    except OSError:
+        not_executed = set()
+    assign_tiers(findings_out, not_executed, secrets_checked=_secrets_checked(run_params))
     return attach_exploitability(attach_context(findings_out, project_map))
+
+
+def _secrets_checked(run_params: str | None) -> bool:
+    """TruffleHog ran with key verification: its "not verified" then means checked and not live."""
+    try:
+        params = json.loads(run_params or "{}")
+    except ValueError:
+        return False
+    values = params.get("trufflehog") if isinstance(params, dict) else None
+    return isinstance(values, dict) and values.get("verify") is True
 
 
 def _verdicts_path(scan_id: str) -> Path:

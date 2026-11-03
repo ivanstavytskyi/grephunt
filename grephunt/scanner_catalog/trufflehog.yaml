@@ -5,9 +5,9 @@ binary: trufflehog
 image: trufflesecurity/trufflehog:3.99.7
 version: "3.99.7"
 timeout_sec: 1800
-# --no-verification: TruffleHog does not try the keys against the providers' APIs.
-# Checking a client's live credentials is a decision for a person, not a default.
-network: false
+# Key verification is the "verify" parameter below: a person sees it on the scan form and
+# can turn it off. With it off the hook adds --no-verification and keeps the network closed.
+network: true
 user: "65534"
 cpus: "2"
 memory: 2g
@@ -35,6 +35,15 @@ target_mount: /src
 output_mount: /out
 environment:
   HOME: /tmp
+parameters:
+  - name: verify
+    type: bool
+    label: Check whether found keys are live
+    description: >-
+      TruffleHog tries each key against its own service (AWS, GitHub, Slack and others) and marks
+      the ones that work. Keys it checked that do not work move to "Needs review". Turn this off for
+      code you do not own: many bug bounty programs forbid using credentials found in a target.
+    default: true
 cap_drop:
   - ALL
 no_new_privileges: true

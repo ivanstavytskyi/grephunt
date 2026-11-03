@@ -190,13 +190,17 @@ def trufflehog_jsonl(text: str, descriptor) -> dict:
         path, number = _trufflehog_location(item.get("SourceMetadata"))
         detector = str(item["DetectorName"])
         verified = bool(item.get("Verified"))
+        check_failed = bool(item.get("VerificationError") or item.get("verificationError"))
         extra = item.get("ExtraData") if isinstance(item.get("ExtraData"), dict) else {}
         kind = extra.get("token_type") or extra.get("Type")
-        title = f"{detector} {kind}" if kind else f"{detector} credential"
+        name = f"{detector} {kind}" if kind else f"{detector} credential"
+        # The status goes into the title so it survives correlation as a confirmation.
+        status = "verified live" if verified else "could not verify" if check_failed else "not verified"
+        title = f"{name} ({status})"
         sarif.add(
             rule_id=f"trufflehog.{detector.lower()}",
             title=title,
-            message=f"{title} ({'verified live' if verified else 'not verified'})",
+            message=title,
             severity="critical" if verified else "high",
             path=path,
             start_line=number,

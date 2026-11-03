@@ -29,6 +29,7 @@ import sys
 import threading
 import time
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
@@ -83,17 +84,37 @@ def cli_path(key: str) -> Path:
     return cache_dir(CLI_CACHE) / str(release["version"]) / asset["file"]
 
 
+_CLI_LOCKS: dict[str, threading.Lock] = {}
+_CLI_LOCKS_GUARD = threading.Lock()
+
+
+def _cli_lock(key: str) -> threading.Lock:
+    with _CLI_LOCKS_GUARD:
+        return _CLI_LOCKS.setdefault(key, threading.Lock())
+
+
 def ensure_cli(key: str, fetch=None) -> Path:
-    """Download the pinned Snyk CLI for a platform once and check its SHA-256."""
+    """Download the pinned Snyk CLI for a platform once and check its SHA-256.
+
+    Snyk Code and Snyk Open Source prepare at the same time and need the same
+    binary. A per-platform lock makes the second one wait for the first
+    download instead of opening the same file (WinError 32 on Windows).
+    """
     release = cli_release()
     asset = release["assets"].get(key)
     if asset is None:
         raise SnykError(f"no Snyk CLI build for {key}")
+    with _cli_lock(key):
+        return _ensure_cli_locked(key, release, asset, fetch)
+
+
+def _ensure_cli_locked(key: str, release: dict, asset: dict, fetch) -> Path:
     target = cli_path(key)
     if target.is_file() and _sha256(target) == asset["sha256"]:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    partial = target.with_name(target.name + ".part")
+    # A unique name per download, so another GrepHunt process cannot collide with it either.
+    partial = target.with_name(f"{target.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.part")
     url = release["url"].format(version=release["version"], file=asset["file"])
     try:
         if fetch is not None:
@@ -105,7 +126,12 @@ def ensure_cli(key: str, fetch=None) -> Path:
         actual = _sha256(partial)
         if actual != asset["sha256"]:
             raise SnykError(f"Snyk CLI download does not match the pinned SHA-256 ({actual})")
-        os.replace(partial, target)
+        try:
+            os.replace(partial, target)
+        except PermissionError:
+            # Windows: another process already put the same file in place and has it open.
+            if not (target.is_file() and _sha256(target) == asset["sha256"]):
+                raise
     finally:
         partial.unlink(missing_ok=True)
     if os.name != "nt":

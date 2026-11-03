@@ -91,6 +91,44 @@ def _run(command: list[str], env: dict[str, str]) -> None:
         raise RuntimeError(tail or f"exit {outcome.returncode}")
 
 
+def keep_logs(db: Path, dest: Path) -> Path | None:
+    """Copy the database's log folder out before the database is removed."""
+    logs = db / "log"
+    if not logs.is_dir():
+        return None
+    try:
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(logs, dest)
+    except OSError:
+        return None
+    return dest
+
+
+_ERROR_WORDS = ("error", "exception", "fatal", "outofmemory", "out of memory", "killed", "failed")
+
+
+def log_excerpt(folder: Path | None, limit: int = 25) -> str:
+    """The lines that explain a failure, from the newest log files."""
+    if folder is None:
+        return ""
+    files = sorted(folder.rglob("*.log"), key=lambda item: item.stat().st_mtime, reverse=True)[:4]
+    lines: list[str] = []
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        hits = [line.strip() for line in text if any(word in line.lower() for word in _ERROR_WORDS)]
+        for line in hits[-limit:]:
+            if line not in lines:
+                lines.append(line[:400])
+        if len(lines) >= limit:
+            break
+    if not lines:
+        return ""
+    return "\nFrom the CodeQL log:\n" + "\n".join(lines[:limit])
+
+
 def scan(src: Path, out: Path, work: Path, codeql: Path) -> None:
     if not codeql.is_file():
         raise SystemExit(f"CodeQL CLI is missing at {codeql}. The prepare step did not finish.")
@@ -121,7 +159,7 @@ def scan(src: Path, out: Path, work: Path, codeql: Path) -> None:
                     f"--language={language.name}",
                     f"--source-root={src}",
                     f"--build-mode={language.build_mode}",
-                    "--ram=2048",
+                    "--ram=3584",
                     "--threads=2",
                     "--overwrite",
                 ],
@@ -137,14 +175,17 @@ def scan(src: Path, out: Path, work: Path, codeql: Path) -> None:
                     "--format=sarifv2.1.0",
                     "--output",
                     str(part),
-                    "--ram=2048",
+                    "--ram=3584",
                     "--threads=2",
                 ],
                 env,
             )
             documents.append(json.loads(part.read_text(encoding="utf-8")))
         except (OSError, RuntimeError, json.JSONDecodeError) as exc:
-            failed.append(f"{language.name}: {exc}")
+            saved = keep_logs(db, out.parent / "codeql-logs" / language.name)
+            detail = log_excerpt(saved)
+            where = f"\nFull CodeQL logs: codeql-logs/{language.name}/ in the scan folder." if saved else ""
+            failed.append(f"{language.name}: {exc}{detail}{where}")
             print(failed[-1], file=sys.stderr, flush=True)
         finally:
             shutil.rmtree(db, ignore_errors=True)

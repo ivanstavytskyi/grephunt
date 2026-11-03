@@ -1,16 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExploitabilityPanel } from "@/components/exploitability";
 import { lazy, memo, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { Finding, ScanEvent, Severity, TaskSummary } from "@/api/types";
+import type { Finding, ScanEvent, Severity } from "@/api/types";
 import { ExplainAi } from "@/components/explain-ai";
 import { ScanExportButton } from "@/components/scan-export-button";
 import { ScanReportAi } from "@/components/scan-report-ai";
 import { PrioritizeAi } from "@/components/prioritize-ai";
 import { describeFindingsFilter, filterFindings, type FindingsFilterState } from "@/lib/findings-filter";
+import { FindingTiers, filterByTier, TIER_TABS, type TierChoice } from "@/components/finding-tiers";
 import { findingKey, FindingsTable } from "@/components/findings-table";
 import { SelectMenu } from "@/components/select-menu";
 import { PanelBoundary } from "@/components/panel-boundary";
 import { ScanMap } from "@/components/scan-map";
+import { ScanTasks } from "@/components/scan-tasks";
 import { Check, Network, Pencil, Trash2 } from "lucide-react";
 
 // React Flow and ELK load only when the map is opened.
@@ -18,6 +20,7 @@ const ProjectMapSheet = lazy(() => import("@/components/project-map"));
 import { Snippet } from "@/components/snippet";
 import { FindingCode } from "@/components/code-view";
 import { Badge } from "@/components/ui/badge";
+import { secondaryButton } from "@/components/ui/button";
 import { ScanRunParams } from "@/components/scan-run-params";
 import { dismissFindings, fetchFindings, fetchLog, fetchScan, fetchTools, watchScan, type LiveChannel } from "@/lib/api";
 import { elapsedSeconds, formatDuration, locationLabel } from "@/lib/utils";
@@ -112,15 +115,18 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
   }, [scanId, status]);
 
   const rows = findings.data ?? [];
-  const deferredRows = useDeferredValue(rows);
+  const [tier, setTier] = useState<TierChoice>("main");
+  const tierRows = useMemo(() => filterByTier(rows, tier), [rows, tier]);
+  const deferredRows = useDeferredValue(tierRows);
   const findingsFilter: FindingsFilterState = useMemo(
     () => ({ severity, category, query, tool }),
     [category, query, severity, tool],
   );
   const filteredFindingCount = useMemo(
-    () => filterFindings(rows, findingsFilter).length,
-    [findingsFilter, rows],
+    () => filterFindings(tierRows, findingsFilter).length,
+    [findingsFilter, tierRows],
   );
+  const tierLabel = TIER_TABS.find((tab) => tab.id === tier)?.label ?? "All";
 
   const toggleChecked = (finding: Finding, value: boolean) => {
     const key = findingKey(finding);
@@ -202,11 +208,6 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
           <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-muted">{scanId}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{scan.data?.target_label ?? "Scan"}</h1>
           <p className="mt-1 font-mono text-xs text-ink-muted">{scan.data?.target_path}</p>
-          {scan.data?.tasks && scan.data.tasks.length > 0 && (
-            <p className="mt-1 font-mono text-[11px] text-ink-muted">
-              {scan.data.tasks.map((task) => `${task.tool} ${formatDuration(task.duration_sec)}`).join(" · ")}
-            </p>
-          )}
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className="rounded-md bg-ink-panel px-2 py-1 font-mono text-xs">{scan.data?.status ?? "…"}</span>
@@ -224,7 +225,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
       </div>
 
       {scan.data?.tasks && scan.data.tasks.length > 0 && (
-        <ScanLiveTasks tasks={scan.data.tasks} running={status === "running"} />
+        <ScanTasks tasks={scan.data.tasks} events={events} running={status === "running"} onShowFindings={setTool} />
       )}
 
       <ScanRunParams runParams={scan.data?.run_params} tools={toolCatalog.data ?? []} />
@@ -232,7 +233,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
       <section className="mt-6">
         {status === "running" && (
           <p className="mb-2 text-xs leading-5 text-ink-muted">
-            Scanners run in Docker. Heartbeats appear about every 15 seconds while a tool runs. Large projects
+            Scanners run in Docker. Heartbeats appear about every 10 seconds while a tool runs. Large projects
             (for example Juice Shop) often need several minutes per tool.
           </p>
         )}
@@ -350,19 +351,20 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               <p className="mt-0.5 text-xs text-ink-muted">
                 {rows.length === 0
                   ? "No findings yet"
-                  : describeFindingsFilter(findingsFilter, rows.length, filteredFindingCount)}
+                  : `${tierLabel}: ${describeFindingsFilter(findingsFilter, tierRows.length, filteredFindingCount)} · ${rows.length} in the scan`}
                 {rows.length > 0 && " · Markdown export includes metadata, summary, and evidence snippets"}
               </p>
             </div>
             <div className="flex flex-wrap items-start gap-2">
               <ScanReportAi scan={scan.data} findings={rows} />
               <PrioritizeAi scanId={scanId} findings={rows} />
+              <span aria-hidden="true" className="mx-1 hidden h-9 w-px self-start bg-ink-line sm:block" />
               {!scan.data?.target_path?.toLowerCase().endsWith(".tar") && (
                 <button
                   type="button"
                   onClick={() => setMapOpen(true)}
                   title="Architecture and file map of the scanned project"
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-ink-line bg-ink-panel px-3.5 text-sm font-medium text-ink-text hover:bg-ink-raised"
+                  className={`${secondaryButton} h-9 px-3.5`}
                 >
                   <Network className="size-4" />
                   Project map
@@ -385,7 +387,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
                   <button
                     type="button"
                     onClick={finishEditing}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-signal/50 bg-ink-panel px-3.5 text-sm font-medium text-ink-text hover:bg-signal/10"
+                    className={`${secondaryButton} h-9 px-3.5`}
                   >
                     <Check className="size-4" />
                     Done
@@ -397,7 +399,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
                   disabled={rows.length === 0}
                   onClick={() => setEditing(true)}
                   title="Select findings to remove from this report"
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-ink-line bg-ink-panel px-3.5 text-sm font-medium text-ink-text hover:bg-ink-raised disabled:cursor-not-allowed disabled:opacity-40"
+                  className={`${secondaryButton} h-9 px-3.5`}
                 >
                   <Pencil className="size-4" />
                   Edit
@@ -407,6 +409,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
             </div>
           </div>
           {removeError && <p className="mb-3 text-xs text-rose-200">{removeError}</p>}
+        {rows.length > 0 && <FindingTiers rows={rows} value={tier} onChange={setTier} />}
         <PanelBoundary title="Findings">
           {findings.isLoading && rows.length === 0 ? (
             <p className="rounded-lg border border-ink-line px-3 py-8 text-sm text-ink-muted">Loading findings…</p>
@@ -436,43 +439,6 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
     </div>
   );
 });
-
-function taskStatusText(task: TaskSummary): string {
-  if (task.status === "success") return "finished";
-  if (task.status === "failed") return "failed";
-  if (task.status === "timeout") return "timed out";
-  if (task.status === "skipped") return "skipped";
-  if (task.status === "queued") return "queued";
-  return "running";
-}
-
-function ScanLiveTasks({ tasks, running }: { tasks: TaskSummary[]; running: boolean }) {
-  return (
-    <div className="mt-6 grid gap-2 sm:grid-cols-2">
-      {tasks.map((task) => {
-        const active = running && (task.status === "running" || task.status === "queued");
-        return (
-          <div key={task.tool} className="rounded-lg border border-ink-line bg-ink-panel px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-sm">{task.tool}</span>
-              {active && (
-                <span
-                  className="size-2 shrink-0 animate-pulse rounded-full bg-signal"
-                  title="Scanner reported progress recently"
-                />
-              )}
-            </div>
-            <p className="mt-1 font-mono text-[11px] capitalize text-ink-muted">{taskStatusText(task)}</p>
-            {active && (
-              <p className="mt-0.5 font-mono text-[11px] text-signal">{formatDuration(task.duration_sec)} elapsed</p>
-            )}
-            {task.error && <p className="mt-1 line-clamp-2 text-[11px] text-rose-300">{task.error}</p>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function ScanClock({
   status,
@@ -570,6 +536,21 @@ function FindingDetail({ scanId, finding }: { scanId: string; finding: Finding }
       <h2 className="text-sm font-medium leading-5">{finding.title}</h2>
       {finding.location && (
         <p className="font-mono text-xs text-ink-muted">{locationLabel(finding.location)}</p>
+      )}
+      {finding.tier && finding.tier !== "main" && finding.tier_reason && (
+        <p className="rounded-md border border-ink-line bg-black/20 px-3 py-2 text-xs leading-5 text-ink-muted">
+          <span className="text-ink-text">{TIER_TABS.find((tab) => tab.id === finding.tier)?.label}:</span> {finding.tier_reason}
+        </p>
+      )}
+      {(finding.kev || typeof finding.epss === "number" || finding.secret_live !== undefined) && (
+        <div className="flex flex-wrap gap-1.5 text-[11px]">
+          {finding.kev && <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-100">In CISA KEV: exploited in real attacks</span>}
+          {typeof finding.epss === "number" && (
+            <span className="rounded bg-ink-raised px-1.5 py-0.5 text-ink-text">EPSS {(finding.epss * 100).toFixed(1)}% in 30 days</span>
+          )}
+          {finding.secret_live === true && <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-100">Key verified live</span>}
+          {finding.secret_live === false && <span className="rounded bg-ink-raised px-1.5 py-0.5 text-ink-muted">Key checked: not live</span>}
+        </div>
       )}
       {finding.exploitability && <ExploitabilityPanel exploitability={finding.exploitability} reason={finding.ai_reason} />}
       <FindingMapContext finding={finding} />

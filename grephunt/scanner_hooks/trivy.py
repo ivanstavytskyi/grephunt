@@ -50,7 +50,8 @@ class TrivyHook:
             if use_docker:
                 args.append("--skip-db-update")
             return [*args, "--format", "sarif", "--output", output, "--quiet"]
-        args = ["fs", "--scanners", ",".join(scanners)]
+        # Trivy's own analysis deadline is 5 minutes; large trees ran out of it in the Helm step.
+        args = ["fs", "--scanners", ",".join(scanners), "--timeout", "15m"]
         if use_docker:
             args.append("--skip-db-update")
         return [*args, "--format", "sarif", "--output", output, "--quiet", src]

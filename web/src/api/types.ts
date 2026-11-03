@@ -54,6 +54,11 @@ export type Finding = {
   exploitability?: { score: number; label: string; factors: string[] };
   ai_verdict?: "confirmed" | "likely" | "false_positive" | null;
   ai_reason?: string;
+  tier?: FindingTier;
+  tier_reason?: string;
+  epss?: number;
+  kev?: boolean;
+  secret_live?: boolean;
   evidence: string | null;
   status: string;
   raw_ref: string | null;
@@ -85,6 +90,64 @@ export type ScanSummary = {
   tasks?: TaskSummary[];
 };
 
+export type TaskContainer = {
+  name?: string;
+  status?: string;
+  image?: string;
+  cpu?: string;
+  memory?: string;
+  memory_pct?: string;
+  pids?: string;
+  net_io?: string;
+  block_io?: string;
+  cpus_limit?: string;
+  memory_limit?: string;
+  pids_limit?: number;
+  network?: string;
+  user?: string | null;
+  exit_code?: number | null;
+};
+
+export type TaskDetails = {
+  phase?: string;
+  failed_phase?: string;
+  timeline?: { phase: string; at: string }[];
+  started_at?: string;
+  finished_at?: string;
+  last_message?: string;
+  last_event_at?: string;
+  mode?: "docker" | "local";
+  cloud?: boolean;
+  timeout_sec?: number;
+  image?: string;
+  pulled?: boolean;
+  pull_sec?: number | null;
+  binary?: string;
+  container?: TaskContainer;
+  exit_code?: number | null;
+  run_sec?: number;
+  stdout_bytes?: number;
+  stderr_bytes?: number;
+  raw_findings?: number;
+  raw_severities?: Partial<Record<Severity, number>>;
+  accepted?: number;
+  severities?: Partial<Record<Severity, number>>;
+  rules?: number;
+  files?: number;
+  sarif_bytes?: number;
+};
+
+export type TaskLimits = {
+  module?: string;
+  category?: string | null;
+  cloud?: boolean;
+  network?: boolean;
+  timeout_sec?: number;
+  cpus?: string;
+  memory?: string;
+  pids_limit?: number;
+};
+
 export type TaskSummary = {
   tool: string;
   status: string;
@@ -92,17 +155,20 @@ export type TaskSummary = {
   tool_version: string | null;
   image: string | null;
   error: string | null;
+  details?: TaskDetails;
+  report_findings?: Partial<Record<Severity, number>>;
+  limits?: TaskLimits;
 };
 
 export type ScannerGroup = "code" | "secret" | "dependency" | "iac";
 
 export type ToolParameterSpec = {
   name: string;
-  type: "multi" | "string_list" | "string";
+  type: "multi" | "string_list" | "string" | "bool";
   label: string;
   description: string;
   choices: string[];
-  default: string | string[] | null;
+  default: string | string[] | boolean | null;
   widget: string | null;
 };
 
@@ -183,3 +249,5 @@ export type MapOverlayView = {
 };
 
 export type MapOverlay = { version: number; views: Record<string, MapOverlayView> };
+
+export type FindingTier = "main" | "review" | "not_executed" | "hygiene" | "infra";

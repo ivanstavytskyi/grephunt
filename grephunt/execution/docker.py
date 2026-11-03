@@ -128,9 +128,45 @@ async def _watch_container_startup(name: str, run_started: float) -> str | None:
             return _startup_failure(status)
 
 
+async def container_probe(name: str) -> dict:
+    """Live container state for the console: status, CPU, memory, PIDs. Empty when Docker does not answer."""
+    import json
+
+    probe: dict = {}
+    status = await _container_status(name)
+    if status is None:
+        return probe
+    probe["status"] = status
+    if status != "running":
+        return probe
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "docker", "stats", "--no-stream", "--format", "{{json .}}", name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=15)
+    except (asyncio.TimeoutError, OSError):
+        return probe
+    if process.returncode != 0:
+        return probe
+    try:
+        stats = json.loads(stdout.decode(errors="replace").strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return probe
+    for source, target in (("CPUPerc", "cpu"), ("MemUsage", "memory"), ("MemPerc", "memory_pct"),
+                           ("PIDs", "pids"), ("NetIO", "net_io"), ("BlockIO", "block_io")):
+        value = stats.get(source)
+        if isinstance(value, str) and value.strip() and value.strip() != "--":
+            probe[target] = value.strip()
+    return probe
+
+
 class DockerRunner:
     def __init__(self) -> None:
         self._ready: set[str] = set()
+        self.pulled: dict[str, float] = {}
+        """Images this runner pulled, with the pull time in seconds."""
 
     def available(self) -> bool:
         return shutil.which("docker") is not None
@@ -152,6 +188,7 @@ class DockerRunner:
         err_text = err.decode(errors="replace")
         if "No such image" not in err_text and "not found" not in err_text.lower():
             return "Docker is not running, or the daemon is not reachable."
+        pull_started = time.monotonic()
         pull = await asyncio.create_subprocess_exec(
             "docker", "pull", image,
             stdout=asyncio.subprocess.PIPE,
@@ -162,6 +199,7 @@ class DockerRunner:
             tail = _ascii_tail(output.decode(errors="replace"))
             detail = f"\n{tail}" if tail else ""
             return f"failed to pull image {image} (exit {pull.returncode}){detail}"
+        self.pulled[image] = round(time.monotonic() - pull_started, 1)
         self._ready.add(image)
         return None
 

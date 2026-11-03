@@ -12,13 +12,18 @@ from grephunt.scan_pipeline.dependency_scope import is_unreferenced_dependency, 
 from grephunt.scan_pipeline.events import EventHandler, EventType, ScanEvent, emit
 from grephunt.scan_pipeline.noise import is_noise
 from grephunt.scan_pipeline.options import ScanOptions
-from grephunt.scan_pipeline.excludes import is_excluded
+from grephunt.scan_pipeline.excludes import SECRET_KEPT_PATTERNS, is_excluded
+from grephunt.scan_pipeline.scan_view import needs_full_project
 from grephunt.report_output.sarif_export import merge_sarif_files
 
 
 def accept_finding(finding: Finding, options: ScanOptions, suppressed: set[str]) -> bool:
     """False for ignored paths, known-noisy rules, and npm packages the app does not use."""
-    if is_excluded(finding.location.path or "", options.excludes):
+    patterns = options.excludes
+    if getattr(finding.category, "value", finding.category) == "secret":
+        # A key in a bundle under dist or build ships to every visitor: keep those findings.
+        patterns = [pattern for pattern in patterns if pattern not in SECRET_KEPT_PATTERNS]
+    if is_excluded(finding.location.path or "", patterns):
         return False
     if is_noise(finding):
         return False
@@ -32,13 +37,16 @@ def emit_tool_findings(
     run: TaskRun,
     options: ScanOptions,
     project: Path | None = None,
-) -> None:
+) -> dict[str, int]:
+    """Publish the findings that pass the filters. Returns how many were accepted, by severity."""
+    accepted: dict[str, int] = {}
     if run.status is not TaskStatus.SUCCESS or not run.findings:
-        return
+        return accepted
     suppressed = suppressed_packages(project)
     for finding in run.findings:
         if not accept_finding(finding, options, suppressed):
             continue
+        accepted[finding.severity.value] = accepted.get(finding.severity.value, 0) + 1
         where = finding.location.label or finding.rule_id
         emit(
             on_event,
@@ -53,6 +61,7 @@ def emit_tool_findings(
                 },
             ),
         )
+    return accepted
 
 
 def _map_anchors(out_dir: Path) -> dict[str, set[int]]:
@@ -68,6 +77,34 @@ def _map_anchors(out_dir: Path) -> dict[str, set[int]]:
         return {}
 
 
+async def _scan_view(project: Path, options: ScanOptions, on_event: EventHandler | None):
+    """The project without build and dependency folders, when the rule is on and there is something to skip."""
+    skip = options.effective_skip_dirs
+    if not skip or options.target_kind != "source" or not project.is_dir():
+        return None
+    from grephunt.config import DATA_DIR
+    from grephunt.scan_pipeline.scan_view import make_scan_view
+
+    try:
+        view = await asyncio.to_thread(make_scan_view, project, DATA_DIR / "tmp" / "scan-views", frozenset(skip))
+    except OSError as exc:
+        emit(on_event, ScanEvent(type=EventType.TASK_HEARTBEAT, message=f"could not prepare the filtered copy, scanning everything: {exc}"))
+        return None
+    if not view.skipped:
+        await asyncio.to_thread(view.remove)
+        return None
+    shown = ", ".join(view.skipped[:8]) + (f" and {len(view.skipped) - 8} more" if len(view.skipped) > 8 else "")
+    emit(
+        on_event,
+        ScanEvent(
+            type=EventType.TASK_HEARTBEAT,
+            message=f"skipping build and dependency folders ({view.skipped_files} files): {shown}",
+            data={"skipped_dirs": view.skipped, "skipped_files": view.skipped_files, "kept_files": view.copied_files},
+        ),
+    )
+    return view
+
+
 async def run_scan(
     project: Path,
     out_dir: Path,
@@ -79,10 +116,14 @@ async def run_scan(
     options = options or ScanOptions()
     scan_id = scan_id or uuid.uuid4().hex[:12]
     out_dir.mkdir(parents=True, exist_ok=True)
+    view = await _scan_view(project, options, on_event)
 
     async def one(tool) -> TaskRun:
+        target = project
+        if view is not None and not needs_full_project(getattr(tool, "descriptor", None)):
+            target = view.root
         try:
-            return await tool.execute(project, out_dir, options, on_event)
+            return await tool.execute(target, out_dir, options, on_event)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -97,7 +138,11 @@ async def run_scan(
             )
             return TaskRun(tool=getattr(tool, "name", "unknown"), status=TaskStatus.FAILED, error=repr(exc))
 
-    runs = list(await asyncio.gather(*(one(tool) for tool in tools)))
+    try:
+        runs = list(await asyncio.gather(*(one(tool) for tool in tools)))
+    finally:
+        if view is not None:
+            await asyncio.to_thread(view.remove)
     raw: list[Finding] = [finding for run in runs for finding in run.findings]
     suppressed = suppressed_packages(project)
     kept = [finding for finding in raw if accept_finding(finding, options, suppressed)]

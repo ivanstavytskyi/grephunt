@@ -32,6 +32,23 @@ export function ScannerParamForm({
             </div>
           );
         }
+        if (spec.type === "bool") {
+          const checked = values[spec.name] === true;
+          return (
+            <label key={spec.name} className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => onChange({ ...values, [spec.name]: event.target.checked })}
+                className="mt-0.5 size-4 shrink-0 accent-signal"
+              />
+              <span className="min-w-0">
+                {spec.label && <span className="block text-xs font-medium text-ink-text">{spec.label}</span>}
+                {spec.description && <span className="mt-0.5 block text-xs leading-5 text-ink-muted">{spec.description}</span>}
+              </span>
+            </label>
+          );
+        }
         if (spec.type === "multi") {
           const current = Array.isArray(values[spec.name]) ? (values[spec.name] as string[]) : [];
           return (

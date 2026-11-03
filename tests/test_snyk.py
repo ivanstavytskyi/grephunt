@@ -122,7 +122,43 @@ def test_cli_download_is_checked_against_the_pinned_hash(snyk_home, monkeypatch)
     with pytest.raises(snyk.SnykError, match="does not match"):
         snyk.ensure_cli("linux-amd64", fetch=fetch)
     assert not path.exists()
-    assert not path.with_name(path.name + ".part").exists()
+    assert not list(path.parent.glob("*.part"))
+
+
+def test_parallel_scanners_share_one_cli_download(snyk_home, monkeypatch):
+    """Snyk Code and Snyk Open Source prepare together: one download, no shared .part file."""
+    import threading
+
+    payload = b"fake snyk binary"
+    release = {"version": "9.9.9", "url": "https://example.test/{version}/{file}",
+               "assets": {"linux-amd64": {"file": "snyk-linux", "sha256": hashlib.sha256(payload).hexdigest()}}}
+    monkeypatch.setattr(snyk, "cli_release", lambda: release)
+    downloads = []
+    barrier = threading.Barrier(2)
+
+    def fetch(url: str, target: Path) -> None:
+        downloads.append(target.name)
+        time.sleep(0.2)
+        target.write_bytes(payload)
+
+    results, errors = [], []
+
+    def worker() -> None:
+        barrier.wait()
+        try:
+            results.append(snyk.ensure_cli("linux-amd64", fetch=fetch))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    assert len(downloads) == 1
+    assert results[0] == results[1] and results[0].read_bytes() == payload
+    assert not list(results[0].parent.glob("*.part"))
 
 
 def test_only_snyk_authorization_pages_are_accepted():
