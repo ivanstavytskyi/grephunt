@@ -19,7 +19,7 @@ import {
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
 import "@xyflow/react/dist/style.css";
-import { ChevronDown, ChevronRight, LayoutGrid, Plus, RefreshCw, StickyNote, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, LayoutGrid, Plus, RefreshCw, StickyNote, X } from "lucide-react";
 import type { Finding, MapEdge, MapNode, MapOverlay, MapOverlayView, ProjectMap, Severity } from "@/api/types";
 import { fetchMapOverlay, fetchProjectMap, rebuildProjectMap, saveMapOverlay } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -754,6 +754,24 @@ function MapCanvas({ scanId, title, map, findings, overlay, onOverlay, onRebuild
         )}
         <div className="ml-auto flex items-center gap-2">
           {laying && <span className="text-xs text-ink-muted">Laying out…</span>}
+          <a
+            href={`/api/scans/${scanId}/map/export?format=canvas&view=${view}`}
+            download
+            title="Obsidian JSON Canvas with your edits; open it in an Obsidian vault"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-line px-2.5 text-xs text-ink-text hover:bg-white/5"
+          >
+            <Download className="size-3.5" />
+            Obsidian
+          </a>
+          <a
+            href={`/api/scans/${scanId}/map/export?format=mermaid&view=${view}`}
+            download
+            title="Mermaid flowchart for GitHub, GitLab, or docs"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-line px-2.5 text-xs text-ink-text hover:bg-white/5"
+          >
+            <Download className="size-3.5" />
+            Mermaid
+          </a>
           <ToolbarButton onClick={addBlock} icon={<Plus className="size-3.5" />} label="Add block" />
           <ToolbarButton onClick={relayout} icon={<LayoutGrid className="size-3.5" />} label="Re-layout" />
           <ToolbarButton onClick={onRebuild} icon={<RefreshCw className={cn("size-3.5", rebuilding && "animate-spin")} />} label="Rebuild map" disabled={rebuilding} />
