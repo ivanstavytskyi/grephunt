@@ -161,7 +161,8 @@ def test_arguments_do_not_verify_keys_or_print_them():
     for name, flag in (("gitleaks", "--redact"), ("betterleaks", "--redact"), ("trufflehog", "--no-verification"), ("kingfisher", "--no-validate")):
         args = tools[name].hook.build_args(tools[name].descriptor, "/src", f"/out/{name}.sarif", options, True)
         assert flag in args, name
-        assert tools[name].descriptor.network is False, name
+        # No network unless a person turns on key verification for this scan.
+        assert tools[name].hook.wants_network(tools[name].descriptor, options) is False, name
     secretlint = tools["secretlint"]
     args = secretlint.hook.build_args(secretlint.descriptor, "/src", "/out/secretlint.sarif", options, True)
     assert args[0] == "/src/**/*"
@@ -202,3 +203,15 @@ def test_reports_on_disk_do_not_keep_the_secret(tmp_path: Path, monkeypatch):
         text = (out / report).read_text(encoding="utf-8")
         leaked = [key for key, value in fake_tokens().items() if value in text]
         assert not leaked, (report, leaked)
+
+
+def test_trufflehog_verifies_keys_only_when_the_scan_asks():
+    tool = load_tools()["trufflehog"]
+    on = ScanOptions(params={"trufflehog": {"verify": True}})
+    off = ScanOptions(params={"trufflehog": {"verify": False}})
+    on_args = tool.hook.build_args(tool.descriptor, "/src", "/out/trufflehog.sarif", on, True)
+    off_args = tool.hook.build_args(tool.descriptor, "/src", "/out/trufflehog.sarif", off, True)
+    assert "--no-verification" not in on_args
+    assert "--no-verification" in off_args
+    assert tool.hook.wants_network(tool.descriptor, on) is True
+    assert tool.hook.wants_network(tool.descriptor, off) is False

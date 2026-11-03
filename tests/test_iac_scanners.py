@@ -62,3 +62,27 @@ def test_iac_golden_sarif_parses_as_misconfig(tool_name: str):
     )
     assert findings
     assert all(item.category is Category.MISCONFIG for item in findings)
+
+
+def test_kubescape_empty_report_without_manifests_is_skipped(tmp_path: Path, monkeypatch):
+    """Kubescape exits 0 and leaves an empty report when there are no Kubernetes manifests."""
+    import asyncio
+
+    from grephunt.execution.request import RunOutcome
+    from grephunt.scan_pipeline.pipeline import run_scan
+    from grephunt.scanner_catalog import launch
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "docker-compose.yml").write_text("services:\n  web:\n    image: nginx\n", encoding="utf-8")
+    tool = load_tools()["kubescape"]
+    monkeypatch.setattr(launch, "resolve_binary", lambda name: "/usr/bin/kubescape")
+
+    async def empty_report(self, request):
+        output = Path(request.args[request.args.index("--output") + 1])
+        output.write_bytes(b"")
+        return RunOutcome(returncode=0, stdout="No resources found")
+
+    monkeypatch.setattr(launch.LocalRunner, "run", empty_report)
+    result = asyncio.run(run_scan(project, tmp_path / "out", [tool], ScanOptions(excludes=[], use_docker=False)))
+    assert result.runs[0].status.value == "skipped"

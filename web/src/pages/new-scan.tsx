@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@/lib/nav";
-import { Archive, Container, FolderOpen, Wand2 } from "lucide-react";
+import { Archive, Check, ChevronRight, Container, FolderOpen, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -11,8 +11,7 @@ import { Input } from "@/components/ui/input";
 import { SnykConnect } from "@/components/snyk-connect";
 import { SelectedScannerParams } from "@/components/selected-scanner-params";
 import type { ScannerGroup, ToolInfo } from "@/api/types";
-import { analyzeTarget, fetchTools, startScan, type ScannerAdvice, type SnykStatus } from "@/lib/api";
-import { readSavedAiKey } from "@/lib/ai-storage";
+import { fetchScanRules, fetchTools, startScan, type SnykStatus } from "@/lib/api";
 import {
   buildInitialParams,
   paramsForScanners,
@@ -39,13 +38,53 @@ function isZipName(name: string): boolean {
   return name.toLowerCase().endsWith(".zip");
 }
 
+const SKIP_GROUPS_KEY = "grephunt.skipGroups.v2";
+const CUSTOM_SKIP_KEY = "grephunt.customSkipDirs.v2";
+// Keep in sync with SKIP_GROUPS in grephunt/scan_pipeline/scan_view.py (tests/test_scan_view.py checks it).
+const FALLBACK_SKIP_GROUPS: { label: string; folders: string[] }[] = [
+  { label: "Installed packages", folders: ["node_modules", "bower_components", "jspm_packages", "web_modules", "vendor", "Pods", "Carthage", ".venv", "venv", "site-packages", ".tox", ".nox", ".eggs"] },
+  { label: "Build output", folders: ["build", "dist", "out", "target", "obj", "_build", "storybook-static", "DerivedData", "cmake-build-debug", "cmake-build-release", "bazel-out"] },
+  { label: "Framework and bundler caches", folders: [".next", ".nuxt", ".svelte-kit", ".angular", ".expo", ".output", ".vercel", ".netlify", ".turbo", ".parcel-cache", ".cache", ".webpack", ".vite"] },
+  { label: "Package manager caches", folders: [".gradle", ".m2", ".ivy2", ".cargo", ".pub-cache", ".yarn", ".pnpm-store"] },
+  { label: "Test coverage and tool caches", folders: ["coverage", ".nyc_output", "htmlcov", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"] },
+  { label: "Infrastructure tool state", folders: [".terraform", ".serverless", ".aws-sam"] },
+  { label: "Version control", folders: [".git"] },
+];
+const FALLBACK_DEPENDENCY_SCANNERS = ["grype", "osv-scanner", "snyk-open-source", "syft"];
+const FALLBACK_SECRET_SCANNERS = ["betterleaks", "gitleaks", "kingfisher", "secretlint", "trufflehog"];
+
 function isImageTarName(name: string): boolean {
   return name.toLowerCase().endsWith(".tar");
 }
 
 export function NewScanPage() {
   const tools = useQuery({ queryKey: ["tools"], queryFn: fetchTools });
-  const [selected, setSelected] = useState<string[]>(["semgrep", "trivy"]);
+  const scanRules = useQuery({ queryKey: ["scan-rules"], queryFn: fetchScanRules, staleTime: Infinity });
+  const [selected, setSelected] = useState<string[]>([]);
+  const [skipGroupSel, setSkipGroupSel] = useState<string[] | null>(() => {
+    try {
+      const raw = window.localStorage.getItem(SKIP_GROUPS_KEY);
+      return raw ? (JSON.parse(raw) as string[]) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [customSkip, setCustomSkip] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(CUSTOM_SKIP_KEY);
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [customInput, setCustomInput] = useState("");
+  const persistSkip = (key: string, value: unknown) => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // Storage can be unavailable; the choice still applies to this scan.
+    }
+  };
   const [toolParams, setToolParams] = useState<ToolParamsState>({});
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
@@ -54,9 +93,41 @@ export function NewScanPage() {
   const zipInput = useRef<HTMLInputElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const imageMode = imageFile !== null;
-  const [advising, setAdvising] = useState(false);
-  const [advice, setAdvice] = useState<ScannerAdvice | null>(null);
-  const [adviceError, setAdviceError] = useState("");
+  // The server's list is the source of truth; the copy here covers a server that predates /api/scan-rules.
+  const skipGroups = scanRules.data?.skip_build_dirs.groups ?? FALLBACK_SKIP_GROUPS;
+  const activeGroups = skipGroupSel ?? [];
+  const skipDirs = [
+    ...new Set([
+      ...skipGroups.filter((group) => activeGroups.includes(group.label)).flatMap((group) => group.folders),
+      ...customSkip,
+    ]),
+  ];
+  const toggleGroup = (label: string) => {
+    const base = skipGroupSel ?? [];
+    const next = base.includes(label) ? base.filter((item) => item !== label) : [...base, label];
+    setSkipGroupSel(next);
+    persistSkip(SKIP_GROUPS_KEY, next);
+  };
+  const addCustomSkip = () => {
+    const value = customInput.trim();
+    if (!value || customSkip.includes(value)) {
+      setCustomInput("");
+      return;
+    }
+    const next = [...customSkip, value];
+    setCustomSkip(next);
+    persistSkip(CUSTOM_SKIP_KEY, next);
+    setCustomInput("");
+  };
+  const removeCustomSkip = (value: string) => {
+    const next = customSkip.filter((item) => item !== value);
+    setCustomSkip(next);
+    persistSkip(CUSTOM_SKIP_KEY, next);
+  };
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const dependencyScanners = scanRules.data?.skip_build_dirs.dependency_scanners ?? FALLBACK_DEPENDENCY_SCANNERS;
+  const secretScanners = scanRules.data?.skip_build_dirs.secret_scanners ?? FALLBACK_SECRET_SCANNERS;
   const [snykConnected, setSnykConnected] = useState(false);
   const onSnyk = useCallback((status: SnykStatus) => setSnykConnected(status.connected), []);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -67,14 +138,7 @@ export function NewScanPage() {
     defaultValues: { github: "" },
   });
 
-  // Start from the scanners the catalog marks as default (one or two strong tools per category).
-  const defaultsApplied = useRef(false);
-  useEffect(() => {
-    if (!tools.data?.length || defaultsApplied.current) return;
-    defaultsApplied.current = true;
-    const defaults = tools.data.filter((tool) => tool.default_enabled && !tool.cloud).map((tool) => tool.name);
-    if (defaults.length) setSelected(defaults);
-  }, [tools.data]);
+  // No scanner is preselected: the person picks every scanner to run.
 
   useEffect(() => {
     if (!tools.data?.length) return;
@@ -90,10 +154,6 @@ export function NewScanPage() {
   }, [tools.data]);
 
   const imageTools = (tools.data ?? []).filter((tool) => tool.scans_images).map((tool) => tool.name);
-  const defaultImageTools = (tools.data ?? [])
-    .filter((tool) => tool.scans_images && tool.default_enabled)
-    .map((tool) => tool.name);
-
   const cloudTools = (tools.data ?? []).filter((tool) => tool.cloud).map((tool) => tool.name);
   const runnable = (names: string[]) =>
     names.filter(
@@ -101,10 +161,7 @@ export function NewScanPage() {
     );
 
   const applyImageScanners = () => {
-    setSelected((current) => {
-      const kept = current.filter((name) => imageTools.includes(name));
-      return kept.length > 0 ? kept : defaultImageTools;
-    });
+    setSelected((current) => current.filter((name) => imageTools.includes(name)));
   };
 
   const chooseZip = (file: File | null) => {
@@ -132,6 +189,7 @@ export function NewScanPage() {
         scanners: scannersToRun,
         params: paramsForScanners(scannersToRun, tools.data ?? [], toolParams),
         useDocker: true,
+        skipDirs,
       });
     },
     onSuccess: async (scan) => {
@@ -295,39 +353,6 @@ export function NewScanPage() {
 
         <SnykConnect onChange={onSnyk} />
 
-        <SuggestScanners
-          advising={advising}
-          advice={advice}
-          error={adviceError}
-          disabled={imageMode}
-          onRun={async () => {
-            const github = form.getValues("github").trim();
-            if (!github && !zipFile && (!folder || folder.length === 0)) {
-              setAdviceError("Add a zip, a project folder, or a GitHub link first.");
-              return;
-            }
-            setAdvising(true);
-            setAdviceError("");
-            setAdvice(null);
-            try {
-              const saved = readSavedAiKey();
-              const result = await analyzeTarget({
-                archive: zipFile,
-                folder,
-                githubUrl: github,
-                ai: saved ? { provider: saved.provider, apiKey: saved.apiKey, model: saved.model } : null,
-              });
-              setAdvice(result);
-              const runnableRecommended = result.recommended.filter((name) => !cloudTools.includes(name));
-              if (runnableRecommended.length > 0) setSelected(runnableRecommended);
-            } catch (error) {
-              setAdviceError(error instanceof Error ? error.message : "Could not analyze the project");
-            } finally {
-              setAdvising(false);
-            }
-          }}
-        />
-
         <ScannerPicker
           tools={tools.data ?? []}
           selected={selected}
@@ -345,6 +370,146 @@ export function NewScanPage() {
           expanded={expandedTool}
           onExpandedChange={setExpandedTool}
         />
+
+        {!imageMode && (
+          <fieldset className="rounded-lg border border-ink-line bg-ink-panel px-4 py-3">
+            <button
+              type="button"
+              aria-expanded={blockOpen}
+              onClick={() => setBlockOpen((value) => !value)}
+              className="flex w-full items-center gap-2 px-1 text-left focus-visible:outline-none"
+            >
+              <ChevronRight className={`size-3.5 text-ink-muted transition-transform ${blockOpen ? "rotate-90" : ""}`} aria-hidden="true" />
+              <span className="text-xs font-medium text-ink-muted">Scan rules — excluded folders</span>
+              <span className="ml-auto text-[11px] text-ink-muted">
+                {skipDirs.length === 0 ? "none excluded" : `${skipDirs.length} folder${skipDirs.length === 1 ? "" : "s"} excluded`}
+              </span>
+            </button>
+            {blockOpen && (
+              <div className="mt-3">
+            <p className="text-xs leading-5 text-ink-muted">
+              Folders left out of code and IaC scanners. Pick the lists to exclude, or add your own. Dependency and
+              secret scanners still read the whole project.
+            </p>
+
+            <div className="mt-3 space-y-1">
+              {skipGroups.map((group) => {
+                const on = activeGroups.includes(group.label);
+                return (
+                  <label
+                    key={group.label}
+                    className="group flex cursor-pointer items-start gap-3 rounded-md px-1 py-1 hover:bg-ink-raised/50"
+                  >
+                    <span className="relative mt-0.5 flex size-4 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggleGroup(group.label)}
+                        className="peer absolute inset-0 m-0 size-4 cursor-pointer appearance-none rounded-[4px] border border-ink-line bg-ink-bg transition-colors checked:border-ink-muted/70 checked:bg-ink-raised group-hover:border-ink-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-muted/70"
+                      />
+                      <Check
+                        aria-hidden="true"
+                        strokeWidth={3}
+                        className="pointer-events-none absolute inset-0 m-auto size-3 text-ink-text/85 opacity-0 transition-opacity peer-checked:opacity-100"
+                      />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm text-ink-text">{group.label}</span>
+                      <span className="mt-0.5 block break-all font-mono text-[11px] leading-4 text-ink-muted">
+                        {group.folders.join(", ")}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="mt-3 border-t border-ink-line pt-3">
+              <p className="mb-1.5 text-xs text-ink-muted">
+                Add your own folder or glob to exclude, or start with <span className="font-mono">!</span> to keep a folder a checked list would exclude (for example <span className="font-mono">!vendor</span>, <span className="font-mono">fixtures</span>, <span className="font-mono">**/testdata</span>).
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={customInput}
+                  onChange={(event) => setCustomInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addCustomSkip();
+                    }
+                  }}
+                  placeholder="folder name or glob"
+                  aria-label="Add a folder or glob to exclude"
+                  className="h-9 flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={addCustomSkip}
+                  aria-label="Add folder to exclude"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md border border-ink-line text-ink-muted hover:text-ink-text"
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                </button>
+              </div>
+              {customSkip.length > 0 && (
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {customSkip.map((item) => (
+                    <li
+                      key={item}
+                      className="inline-flex items-center gap-1 rounded bg-ink-raised px-2 py-0.5 font-mono text-[11px] text-ink-text"
+                    >
+                      {item}
+                      <button
+                        type="button"
+                        onClick={() => removeCustomSkip(item)}
+                        aria-label={`Remove ${item}`}
+                        className="text-ink-muted hover:text-ink-text"
+                      >
+                        <X className="size-3" aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {skipDirs.length === 0 && (
+              <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                Nothing is excluded — scanners will also read node_modules, .git and build output. This is slower,
+                noisier, and can exhaust memory on large projects.
+              </p>
+            )}
+
+            <button
+              type="button"
+              aria-expanded={rulesOpen}
+              onClick={() => setRulesOpen((value) => !value)}
+              className="mt-3 inline-flex items-center gap-1 rounded text-xs text-ink-muted hover:text-ink-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-muted/70"
+            >
+              <ChevronRight className={`size-3.5 transition-transform ${rulesOpen ? "rotate-90" : ""}`} aria-hidden="true" />
+              {rulesOpen ? "Hide details" : "How exclusion works"}
+            </button>
+            {rulesOpen && (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-ink-muted marker:text-ink-line">
+                <li>
+                  A folder is excluded when its name matches a checked list exactly, at any depth (frontend/dist,
+                  packages/api/node_modules). Custom entries also accept globs and, with an re: prefix, Python regular expressions (re:^vendor/.*); a leading ! keeps a folder in the scan (!vendor, !re:.*/keep).
+                </li>
+                <li>Your files are not changed. Scanners get a copy of the project without these folders.</li>
+                <li>
+                  Dependency scanners ({dependencyScanners.join(", ")}) always scan the whole project: they read
+                  installed packages.
+                </li>
+                <li>
+                  Secret scanners ({secretScanners.join(", ")}) always scan the whole project, including build output
+                  and git history, where keys leak.
+                </li>
+              </ul>
+            )}
+              </div>
+            )}
+          </fieldset>
+        )}
 
         <Button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? "Starting" : "Start scan"}
@@ -396,54 +561,6 @@ function UploadCard({
         <span className="mt-1 text-xs leading-5 text-ink-muted">{hint}</span>
         {footer}
       </button>
-    </div>
-  );
-}
-
-function SuggestScanners({ advising, advice, error, disabled, onRun }: {
-  advising: boolean;
-  advice: ScannerAdvice | null;
-  error: string;
-  disabled: boolean;
-  onRun: () => void;
-}) {
-  if (disabled) return null;
-  return (
-    <div className="space-y-2">
-      <button
-        type="button"
-        disabled={advising}
-        onClick={onRun}
-        title="Build the project map and recommend the scanners that fit this project. With an AI key, the model reviews the choice."
-        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-signal/50 bg-ink-panel px-4 text-sm font-medium text-ink-text hover:bg-signal/10 disabled:opacity-40"
-      >
-        <Wand2 className="size-4" />
-        {advising ? "Analyzing the project…" : "Suggest scanners for this project"}
-      </button>
-      {error && <p className="text-xs text-rose-200">{error}</p>}
-      {advice && (
-        <div className="space-y-2 rounded-lg border border-ink-line bg-ink-panel p-3 text-xs">
-          <p className="text-[11px] uppercase tracking-wide text-ink-muted">
-            Recommended {advice.source === "ai" ? "· reviewed by AI" : "· from the project map"}
-            {advice.label ? ` · ${advice.label}` : ""} — selected below
-          </p>
-          {advice.summary && <p className="text-ink-text/90">{advice.summary}</p>}
-          {(advice.stack?.frameworks?.length || advice.stack?.datastores?.length) ? (
-            <p className="text-ink-muted">
-              Stack: {[...(advice.stack?.frameworks ?? []), ...(advice.stack?.datastores ?? [])].join(", ")}
-            </p>
-          ) : null}
-          <ul className="space-y-1">
-            {advice.recommended.map((name) => (
-              <li key={name} className="flex gap-2">
-                <span className="w-28 shrink-0 font-mono text-ink-text">{name}</span>
-                <span className="text-ink-muted">{advice.reasons[name]}</span>
-              </li>
-            ))}
-          </ul>
-          {advice.note && <p className="text-amber-200/80">{advice.note}</p>}
-        </div>
-      )}
     </div>
   );
 }

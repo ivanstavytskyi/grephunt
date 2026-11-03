@@ -5,7 +5,9 @@ export type ToolParamsState = Record<string, Record<string, unknown>>;
 export function defaultToolParams(specs: ToolParameterSpec[]): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const spec of specs) {
-    if (spec.default !== undefined && spec.default !== null) {
+    if (spec.type === "bool") {
+      values[spec.name] = spec.default === true;
+    } else if (spec.default !== undefined && spec.default !== null) {
       if (spec.type === "multi" || spec.type === "string_list") {
         values[spec.name] = Array.isArray(spec.default) ? [...spec.default] : [];
       } else {

@@ -10,11 +10,11 @@ from grephunt.finding_model.record import Category, Module
 
 class ParameterSpec(BaseModel):
     name: str
-    type: Literal["multi", "string_list", "string"]
+    type: Literal["multi", "string_list", "string", "bool"]
     label: str = ""
     description: str = ""
     choices: list[str] = Field(default_factory=list)
-    default: list[str] | str | None = None
+    default: list[str] | str | bool | None = None
     widget: str | None = None
 
 
@@ -89,6 +89,11 @@ class ToolDescriptor(BaseModel):
     """False when the tool writes a fixed version into SARIF (Gitleaks and Betterleaks write v8.0.0)."""
     skip_exit_codes: list[int] = Field(default_factory=list)
     """Exit codes that mean "nothing here to scan" (Snyk: 3). The task is skipped, not failed."""
+    needs_dependency_dirs: bool = False
+    """True: the tool reads installed packages (node_modules, vendor), so the "skip build folders" rule leaves it the full project."""
+    empty_output_skips: bool = False
+    """True: an empty report with an OK exit code means "nothing here to scan"
+    (Kubescape without Kubernetes manifests). The task is skipped, not failed."""
     default_enabled: bool = True
     """False: the scanner runs only when it is selected by name (CLI -s, or the console)."""
     cloud: bool = False

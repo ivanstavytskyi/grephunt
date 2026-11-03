@@ -22,8 +22,9 @@ args:
   - --threads=1
 output_source: stdout
 output_filename: psalm.sarif
-# 0: clean. 1: Psalm found issues and still printed the report.
-ok_exit_codes: [0, 1]
+# 0: clean. 2: Psalm found issues and printed the report. 1 is a config or fatal error
+# (for example "Could not resolve config path"): the run produced nothing and must show as failed.
+ok_exit_codes: [0, 2]
 target_mount: /src
 output_mount: /out
 environment:

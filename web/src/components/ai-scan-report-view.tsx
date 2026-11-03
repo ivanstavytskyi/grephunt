@@ -1,15 +1,12 @@
-import { Download, LoaderCircle, Send, X } from "lucide-react";
+import { primaryButton } from "@/components/ui/button";
+import { LoaderCircle, Send, X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Finding, ScanSummary } from "@/api/types";
 import { AiMarkdownBody } from "@/components/ai-markdown-body";
 import { parseReportSections } from "@/lib/ai-report-markdown";
 import { readApiError, type SavedAiKey } from "@/lib/ai-storage";
-import {
-  buildScanExportMarkdown,
-  downloadTextFile,
-  scanExportFilename,
-  type AiReportChatMessage,
-} from "@/lib/scan-export";
+import { ExportMenu } from "@/components/export-menu";
+import { exportScanReport, type AiReportChatMessage, type ExportFormat } from "@/lib/scan-export";
 
 const SEV_ORDER = ["critical", "high", "medium", "low", "info"] as const;
 
@@ -39,18 +36,28 @@ function severityTone(severity: string): string {
   }
 }
 
+export type ReportFilterStats = {
+  total: number;
+  kept: number;
+  dropped: number;
+  dropped_by_reason: Record<string, number>;
+  by_class: Record<string, number>;
+};
+
 export function AiScanReportView({
   report,
   findings,
   scan,
   aiKey,
   onClose,
+  filter,
 }: {
   report: string;
   findings: Finding[];
   scan: ScanSummary | undefined;
   aiKey: SavedAiKey;
   onClose: () => void;
+  filter?: ReportFilterStats | null;
 }) {
   const { title, sections } = parseReportSections(report);
   const bySeverity = countBy(findings, (f) => f.severity);
@@ -129,15 +136,9 @@ export function AiScanReportView({
     }
   };
 
-  const saveExport = () => {
+  const saveExport = (format: ExportFormat) => {
     if (!scan) return;
-    const markdown = buildScanExportMarkdown({
-      scan,
-      findings,
-      aiReport: report,
-      chatMessages,
-    });
-    downloadTextFile(scanExportFilename(scan, "report"), markdown);
+    exportScanReport(format, { scan, findings, aiReport: report, chatMessages });
   };
 
   return (
@@ -158,18 +159,19 @@ export function AiScanReportView({
             <h2 id="ai-scan-report-title" className="mt-1 text-lg font-semibold leading-snug tracking-tight text-ink-text">
               {title || targetLabel || "Security assessment"}
             </h2>
-            <p className="mt-1 text-xs text-ink-muted">{findings.length} findings in this scan</p>
+            <p className="mt-1 text-xs text-ink-muted">
+              {filter
+                ? `${filter.kept} exploitable of ${filter.total} findings · ${filter.dropped} left out as low impact, non-exploitable, or test code`
+                : `${findings.length} findings in this scan`}
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              aria-label="Export"
-              title="Export markdown (AI summary, findings, and chat)"
-              onClick={saveExport}
-              className="flex size-9 items-center justify-center rounded-md border border-ink-line text-ink-muted hover:bg-ink-raised hover:text-ink-text"
-            >
-              <Download className="size-4" aria-hidden="true" />
-            </button>
+            <ExportMenu
+              iconOnly
+              disabled={!scan}
+              title="Download the AI report, findings and follow-up questions: PDF, Markdown or plain text"
+              onExport={saveExport}
+            />
             <button
               type="button"
               aria-label="Close report"
@@ -196,9 +198,11 @@ export function AiScanReportView({
             </div>
           </div>
           <div>
-            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-muted">By category</p>
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+              {filter ? "By vulnerability class" : "By category"}
+            </p>
             <div className="flex flex-wrap gap-1.5">
-              {Object.entries(byCategory)
+              {Object.entries(filter ? filter.by_class : byCategory)
                 .sort((a, b) => b[1] - a[1])
                 .map(([category, count]) => (
                   <span
@@ -258,7 +262,7 @@ export function AiScanReportView({
                   <div
                     className={
                       message.role === "user"
-                        ? "max-w-[92%] rounded-lg border border-signal/30 bg-signal/10 px-3 py-2 text-sm text-ink-text"
+                        ? "max-w-[92%] rounded-lg border border-ink-line bg-ink-raised px-3 py-2 text-sm text-ink-text"
                         : "max-w-[92%] rounded-lg border border-ink-line bg-ink-panel px-3 py-2 text-sm"
                     }
                   >
@@ -297,7 +301,7 @@ export function AiScanReportView({
               disabled={chatLoading || !chatInput.trim()}
               onClick={() => void sendChat()}
               aria-label="Send question"
-              className="flex size-10 shrink-0 items-center justify-center self-end rounded-md border border-signal/60 text-signal hover:bg-signal/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${primaryButton} size-10 shrink-0 self-end`}
             >
               {chatLoading ? (
                 <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />

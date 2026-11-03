@@ -9,7 +9,8 @@ network: false
 user: "65534"
 cpus: "2"
 memory: 2g
-pids_limit: 256
+# KICS starts a goroutine per file; 256 was too few threads for large trees (Go runtime crash).
+pids_limit: 1024
 args:
   - scan
   - -p

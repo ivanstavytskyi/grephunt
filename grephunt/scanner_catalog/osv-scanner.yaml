@@ -59,3 +59,5 @@ cache_volumes:
 cap_drop:
   - ALL
 no_new_privileges: true
+# Reads installed packages: keeps node_modules and vendor when build folders are skipped.
+needs_dependency_dirs: true

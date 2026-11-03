@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -15,18 +16,61 @@ from grephunt.scan_pipeline.events import EventHandler, EventType, ScanEvent, em
 from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scan_pipeline.pipeline import emit_tool_findings
 from grephunt.scan_pipeline.sarif import parse_sarif
-from grephunt.execution.docker import DockerRunner
+from grephunt.execution.docker import DockerRunner, container_probe
 from grephunt.execution.local import LocalRunner, resolve_binary
 from grephunt.execution.request import RunRequest
 from grephunt.scanner_catalog.descriptor import ToolDescriptor
 
-_HEARTBEAT_SEC = 15
+_HEARTBEAT_SEC = 10
+# The first container probe comes sooner, so the console shows the container state quickly.
+_FIRST_PROBE_SEC = 4
 
 _SNYK_CODE_DISABLED = (
     "Snyk Code is turned off for this Snyk organization (SNYK-CODE-0005). "
     "Enable Snyk Code in the organization settings, then scan again. "
     "GrepHunt still runs its own JavaScript rules for Angular XSS, XXE, zip slip, NoSQL $where, and unsafe YAML."
 )
+
+
+_HEAD_CHARS = 1500
+_TAIL_CHARS = 2000
+_KEY_LINE = re.compile(r"\b(fatal|panic|error|exception|killed|out of memory|failed|denied|timed? ?out)\b", re.IGNORECASE)
+
+
+def _failure_text(raw: str, fallback: str) -> str:
+    """The start and the end of a tool's output.
+
+    Crashes put the cause first (a Go panic, a Java exception) and thousands of stack lines
+    after it, so the end alone hides the reason.
+    """
+    lines = [line.strip() for line in (raw or "").splitlines() if line.strip() and line.strip().isascii()]
+    text = "\n".join(lines)
+    if not text:
+        return fallback
+    if len(text) <= _HEAD_CHARS + _TAIL_CHARS + 200:
+        return text
+    head = text[:_HEAD_CHARS].rsplit("\n", 1)[0]
+    tail = text[-_TAIL_CHARS:].split("\n", 1)[-1]
+    skipped = len(lines) - head.count("\n") - tail.count("\n") - 2
+    return f"{head}\n… {max(skipped, 0)} lines skipped …\n{tail}"
+
+
+def _failure_summary(text: str) -> str:
+    """One line for the console: the first line that names the problem, else the last line."""
+    lines = [line for line in text.splitlines() if line and not line.startswith("…")]
+    for line in lines[:60]:
+        if _KEY_LINE.search(line):
+            return line[:400]
+    return (lines[-1] if lines else text)[:400]
+
+
+def _save_output(out_dir: Path, tool: str, outcome) -> None:
+    """Full stdout and stderr of a failed run, next to the reports."""
+    body = (outcome.stderr or "") + ("\n--- stdout ---\n" + outcome.stdout if outcome.stdout else "")
+    if not body.strip():
+        return
+    with contextlib.suppress(OSError):
+        (out_dir / f"{tool}.log").write_text(body[:20_000_000], encoding="utf-8", errors="replace")
 
 
 def _explain_tool_failure(tool: str, tail: str) -> str:
@@ -65,20 +109,32 @@ class ScannerTool:
         *,
         phase: str,
         label: str,
+        container: str | None = None,
     ) -> None:
         import asyncio
 
+        delay = _FIRST_PROBE_SEC if container else _HEARTBEAT_SEC
         while True:
-            await asyncio.sleep(_HEARTBEAT_SEC)
+            await asyncio.sleep(delay)
+            delay = _HEARTBEAT_SEC
             elapsed = time.monotonic() - started
+            data: dict = {"elapsed_sec": round(elapsed, 1), "phase": phase}
+            message = f"{label} — {elapsed:.0f}s"
+            if container:
+                probe = await container_probe(container)
+                if probe:
+                    data["container"] = probe
+                    usage = ", ".join(
+                        part for part in (
+                            probe.get("status"),
+                            f"CPU {probe['cpu']}" if probe.get("cpu") else "",
+                            f"mem {probe['memory']}" if probe.get("memory") else "",
+                        ) if part
+                    )
+                    message = f"{message} (container {usage})"
             emit(
                 on_event,
-                ScanEvent(
-                    type=EventType.TASK_HEARTBEAT,
-                    tool=self.name,
-                    message=f"{label} — {elapsed:.0f}s",
-                    data={"elapsed_sec": round(elapsed, 1), "phase": phase},
-                ),
+                ScanEvent(type=EventType.TASK_HEARTBEAT, tool=self.name, message=message, data=data),
             )
 
     async def execute(
@@ -102,7 +158,20 @@ class ScannerTool:
     ) -> TaskRun:
         import asyncio
 
-        emit(on_event, ScanEvent(type=EventType.TASK_QUEUED, tool=self.name, message="queued, waiting to start"))
+        emit(
+            on_event,
+            ScanEvent(
+                type=EventType.TASK_QUEUED,
+                tool=self.name,
+                message="queued, waiting to start",
+                data={
+                    "phase": "queued",
+                    "mode": "docker" if options.use_docker else "local",
+                    "cloud": self.descriptor.cloud,
+                    "timeout_sec": self.descriptor.timeout_sec,
+                },
+            ),
+        )
         image_scan = options.target_kind == "image"
         if image_scan and not getattr(self.hook, "supports_image", lambda: False)():
             message = "does not scan container images"
@@ -120,6 +189,15 @@ class ScannerTool:
             return TaskRun(tool=self.name, status=TaskStatus.FAILED, error=hint, image=self.descriptor.image)
 
         if options.use_docker:
+            emit(
+                on_event,
+                ScanEvent(
+                    type=EventType.TASK_HEARTBEAT,
+                    tool=self.name,
+                    message=f"checking image {self.descriptor.image}",
+                    data={"phase": "image", "image": self.descriptor.image},
+                ),
+            )
             image_error = await self.docker.ensure_image(self.descriptor.image)
             if image_error:
                 emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=image_error, data={"status": "failed"}))
@@ -129,19 +207,43 @@ class ScannerTool:
                 ScanEvent(
                     type=EventType.IMAGE_READY,
                     tool=self.name,
-                    message=f"image {self.descriptor.image} is ready",
-                    data={"image": self.descriptor.image, "version": self.descriptor.version},
+                    message=(
+                        f"image {self.descriptor.image} pulled in {self.docker.pulled[self.descriptor.image]:.0f}s"
+                        if self.descriptor.image in self.docker.pulled
+                        else f"image {self.descriptor.image} is ready (cached)"
+                    ),
+                    data={
+                        "phase": "image",
+                        "image": self.descriptor.image,
+                        "version": self.descriptor.version,
+                        "pulled": self.descriptor.image in self.docker.pulled,
+                        "pull_sec": self.docker.pulled.get(self.descriptor.image),
+                    },
                 ),
             )
         else:
             emit(
                 on_event,
-                ScanEvent(type=EventType.IMAGE_READY, tool=self.name, message="local binary, no container image"),
+                ScanEvent(
+                    type=EventType.IMAGE_READY,
+                    tool=self.name,
+                    message="local binary, no container image",
+                    data={"phase": "image", "version": self.descriptor.version},
+                ),
             )
 
         prepare = getattr(self.hook, "prepare", None)
         if prepare is not None:
             prepare_started = time.monotonic()
+            emit(
+                on_event,
+                ScanEvent(
+                    type=EventType.TASK_HEARTBEAT,
+                    tool=self.name,
+                    message=getattr(self.hook, "prepare_label", "preparing scanner data (cached when possible)"),
+                    data={"phase": "prepare"},
+                ),
+            )
             prepare_pulse = asyncio.create_task(
                 self._heartbeat(
                     prepare_started,
@@ -209,13 +311,25 @@ class ScannerTool:
                 ScanEvent(
                     type=EventType.TASK_HEARTBEAT,
                     tool=self.name,
-                    message="starting scan in Docker (large projects can take several minutes)",
-                    data={"phase": "start"},
+                    message=f"starting container {container_name} (large projects can take several minutes)",
+                    data={
+                        "phase": "start",
+                        "container": {
+                            "name": container_name,
+                            "status": "starting",
+                            "image": self.descriptor.image,
+                            "cpus_limit": self.descriptor.cpus,
+                            "memory_limit": self.descriptor.memory,
+                            "pids_limit": self.descriptor.pids_limit,
+                            "network": "bridge" if network else "none",
+                            "user": self.descriptor.user,
+                        },
+                    },
                 ),
             )
             started = time.monotonic()
             heartbeat = asyncio.create_task(
-                self._heartbeat(started, on_event, phase="scan", label="scanning project")
+                self._heartbeat(started, on_event, phase="scan", label="scanning project", container=container_name)
             )
             try:
                 outcome = await self.docker.run(request)
@@ -232,6 +346,15 @@ class ScannerTool:
                 network=network,
                 environment=self._extra_environment(options, False),
             )
+            emit(
+                on_event,
+                ScanEvent(
+                    type=EventType.TASK_HEARTBEAT,
+                    tool=self.name,
+                    message=f"starting {binary}",
+                    data={"phase": "start", "binary": str(binary)},
+                ),
+            )
             started = time.monotonic()
             heartbeat = asyncio.create_task(
                 self._heartbeat(started, on_event, phase="scan", label="scanning project")
@@ -245,6 +368,31 @@ class ScannerTool:
 
         duration = time.monotonic() - started
         version = self.descriptor.version
+        exited: dict = {
+            "phase": "parse",
+            "exit_code": outcome.returncode,
+            "run_sec": round(duration, 1),
+            "stdout_bytes": len(outcome.stdout or ""),
+            "stderr_bytes": len(outcome.stderr or ""),
+        }
+        if options.use_docker:
+            exited["container"] = {
+                "status": "killed" if outcome.timed_out else ("exited" if outcome.returncode is not None else "failed"),
+                "exit_code": outcome.returncode,
+            }
+        emit(
+            on_event,
+            ScanEvent(
+                type=EventType.TASK_HEARTBEAT,
+                tool=self.name,
+                message=(
+                    f"timed out after {duration:.0f}s"
+                    if outcome.timed_out
+                    else f"scanner exited with code {outcome.returncode} after {duration:.0f}s, reading the report"
+                ),
+                data=exited,
+            ),
+        )
         if outcome.timed_out:
             emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=outcome.error or "timeout", data={"status": "timeout"}))
             return TaskRun(
@@ -259,13 +407,12 @@ class ScannerTool:
 
         allowed = self.descriptor.ok_exit_codes
         if allowed is not None and outcome.returncode not in allowed:
-            raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""
-            ascii_lines = [line.strip() for line in raw_tail.splitlines() if line.strip() and line.strip().isascii()]
-            tail = "\n".join(ascii_lines)[-2000:] or f"exit code {outcome.returncode}"
+            _save_output(out_dir, self.name, outcome)
+            tail = _failure_text(outcome.stderr or outcome.stdout or outcome.error or "", f"exit code {outcome.returncode}")
             tail = _explain_tool_failure(self.name, tail)
             report_ready = self.name == "snyk-code" and sarif_path.is_file() and sarif_path.stat().st_size > 2
             if not report_ready:
-                message = f"exit code {outcome.returncode}: {tail.splitlines()[-1][:400]}"
+                message = f"exit code {outcome.returncode}: {_failure_summary(tail)}"
                 emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
                 return TaskRun(
                     tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
@@ -294,15 +441,25 @@ class ScannerTool:
                 )
 
         if not sarif_path.exists():
-            raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""
-            ascii_lines = [line.strip() for line in raw_tail.splitlines() if line.strip() and line.strip().isascii()]
-            tail = "\n".join(ascii_lines)[-2000:] or (outcome.error or "SARIF was not created")
-            summary = tail.splitlines()[-1][:500] if tail else "SARIF was not created"
+            _save_output(out_dir, self.name, outcome)
+            tail = _failure_text(outcome.stderr or outcome.stdout or outcome.error or "", outcome.error or "SARIF was not created")
+            summary = _failure_summary(tail)
             emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=summary, data={"status": "failed"}))
             return TaskRun(
                 tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
                 tool_version=version, image=self.descriptor.image, error=tail,
             )
+
+        if (
+            self.descriptor.empty_output_skips
+            and sarif_path.is_file()
+            and not sarif_path.read_bytes().strip()
+        ):
+            sarif_path.unlink(missing_ok=True)
+            message = "nothing to scan for this tool in the project"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "skipped"}))
+            return TaskRun(tool=self.name, status=TaskStatus.SKIPPED, duration_sec=duration, tool_version=version,
+                           image=self.descriptor.image, error=message)
 
         try:
             findings = parse_sarif(
@@ -344,14 +501,31 @@ class ScannerTool:
             sarif_path=sarif_path,
             findings=findings,
         )
-        emit_tool_findings(on_event, finished, options, project)
+        accepted = emit_tool_findings(on_event, finished, options, project)
+        raw_severities: dict[str, int] = {}
+        for item in findings:
+            raw_severities[item.severity.value] = raw_severities.get(item.severity.value, 0) + 1
+        accepted_total = sum(accepted.values())
         emit(
             on_event,
             ScanEvent(
                 type=EventType.TASK_FINISHED,
                 tool=self.name,
-                message=f"done, {len(findings)} findings",
-                data={"status": "success", "findings": len(findings), "version": parsed_version},
+                message=f"done, {len(findings)} findings ({accepted_total} after filters)",
+                data={
+                    "status": "success",
+                    "phase": "done",
+                    "findings": len(findings),
+                    "raw_findings": len(findings),
+                    "raw_severities": raw_severities,
+                    "accepted": accepted_total,
+                    "severities": accepted,
+                    "rules": len({item.rule_id for item in findings if item.rule_id}),
+                    "files": len({item.location.path for item in findings if item.location.path}),
+                    "sarif_bytes": sarif_path.stat().st_size if sarif_path.is_file() else 0,
+                    "version": parsed_version,
+                    "elapsed_sec": round(duration, 1),
+                },
             ),
         )
         return finished

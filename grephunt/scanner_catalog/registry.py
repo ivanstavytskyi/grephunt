@@ -18,6 +18,7 @@ from grephunt.scanner_hooks.progpilot import ProgpilotHook
 from grephunt.scanner_hooks.semgrep import SemgrepHook
 from grephunt.scanner_hooks.snyk import SnykHook
 from grephunt.scanner_hooks.trivy import TrivyHook
+from grephunt.scanner_hooks.trufflehog import TrufflehogHook
 
 _DIR = Path(__file__).resolve().parent
 _UI_PATH = _DIR / "ui.yaml"
@@ -30,6 +31,7 @@ _HOOKS = {
     "snyk-code": SnykHook,
     "snyk-open-source": SnykHook,
     "trivy": TrivyHook,
+    "trufflehog": TrufflehogHook,
 }
 
 

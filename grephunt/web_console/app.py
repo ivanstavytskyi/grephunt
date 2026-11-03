@@ -28,6 +28,7 @@ from grephunt.web_console.ai_explain import (
     check_key,
     explain_finding,
     explain_scan_report,
+    scan_report,
     poc_finding,
     triage_findings,
 )
@@ -91,7 +92,12 @@ async def lifespan(app: FastAPI):
     session_factory()
     _fail_interrupted()
     await asyncio.to_thread(purge_stale_grephunt_containers)
+    # KEV and EPSS for ranking dependency findings; fetched in the background, never blocks startup.
+    from grephunt.web_console.scans import _refresh_intel
+
+    intel = asyncio.create_task(asyncio.to_thread(_refresh_intel))
     yield
+    intel.cancel()
 
 
 app = FastAPI(title="GrepHunt", version="0.2.0", lifespan=lifespan)
@@ -393,6 +399,25 @@ async def events_ws(websocket: WebSocket, scan_id: str) -> None:
         return
 
 
+@app.get("/api/scan-rules")
+def scan_rules() -> dict:
+    """What the "skip build output and installed dependencies" rule leaves out, for the New scan page."""
+    from grephunt.scan_pipeline.scan_view import SKIP_GROUPS, needs_full_project
+    from grephunt.scanner_catalog.registry import load_descriptors
+
+    descriptors = load_descriptors()
+    return {
+        "skip_build_dirs": {
+            "groups": [{"label": label, "folders": list(names)} for label, names in SKIP_GROUPS],
+            "full_project_scanners": sorted(name for name, item in descriptors.items() if needs_full_project(item)),
+            "dependency_scanners": sorted(name for name, item in descriptors.items() if item.needs_dependency_dirs),
+            "secret_scanners": sorted(
+                name for name, item in descriptors.items() if needs_full_project(item) and not item.needs_dependency_dirs
+            ),
+        }
+    }
+
+
 @app.post("/api/scans")
 async def start(
     path: str | None = Form(default=None),
@@ -406,6 +431,8 @@ async def start(
     relative_paths: list[str] | None = Form(default=None),
     folder_name: str | None = Form(default=None),
     github_url: str | None = Form(default=None),
+    skip_build_dirs: str = Form(default="true"),
+    skip_dirs: str = Form(default=""),
 ) -> dict:
     names = [item.strip().lower() for item in scanners.split(",") if item.strip()]
     if not names:
@@ -501,6 +528,15 @@ async def start(
     else:
         raise HTTPException(status_code=400, detail="provide a folder path or upload an archive")
 
+    skip_dirs_list: list[str] | None = None
+    if skip_dirs.strip():
+        try:
+            parsed_skip = json.loads(skip_dirs)
+            if isinstance(parsed_skip, list):
+                skip_dirs_list = [str(item).strip() for item in parsed_skip if str(item).strip()]
+        except ValueError:
+            skip_dirs_list = None
+
     try:
         scan_id = create_scan(
             target,
@@ -512,6 +548,8 @@ async def start(
             image_format=image_format,
             source_repo_url=source_repo_url,
             source_ref=source_ref,
+            skip_build_dirs=skip_build_dirs.lower() not in {"0", "false", "no"},
+            skip_dirs=skip_dirs_list,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -659,6 +697,13 @@ def ai_prioritize(body: dict = Body()) -> dict:
     scan_id = str(body.get("scan_id") or "")
     if not isinstance(findings, list) or not findings:
         raise HTTPException(status_code=400, detail="findings list is missing")
+    if scan_id:
+        # The reviewer reads the whole enclosing function, not a 500-character snippet.
+        from grephunt.web_console.function_context import attach_code
+
+        scan = get_scan(scan_id)
+        if scan and scan.get("target_path"):
+            attach_code(findings, Path(scan["target_path"]))
     try:
         verdicts = triage_findings(
             str(body.get("provider") or ""),
@@ -795,7 +840,7 @@ def ai_scan_report(body: dict = Body()) -> dict:
     if not findings:
         raise HTTPException(status_code=400, detail="this scan has no findings to summarize")
     try:
-        text = explain_scan_report(
+        return scan_report(
             str(body.get("provider") or ""),
             str(body.get("api_key") or ""),
             str(body.get("model") or ""),
@@ -804,7 +849,6 @@ def ai_scan_report(body: dict = Body()) -> dict:
         )
     except (ValueError, ProviderError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"text": text}
 
 
 @app.post("/api/ai/scan-report/chat")

@@ -297,6 +297,11 @@ def _brief_finding(finding: dict, *, compact: bool = False) -> dict:
         "package": finding.get("package"),
         "fixed_version": finding.get("fixed_version"),
     }
+    if finding.get("impact_class"):
+        row["impact_class"] = finding.get("impact_class")
+    score = finding.get("exploitability")
+    if isinstance(score, dict) and score.get("label"):
+        row["exploitability"] = score.get("label")
     if not compact:
         snippet = mask_secrets(finding.get("snippet"))
         if isinstance(snippet, str) and len(snippet) > 240:
@@ -354,39 +359,54 @@ def poc_finding(provider: str, api_key: str, model: str, finding: dict) -> str:
     return _call(provider, api_key, model, text)
 
 
-_SCAN_REPORT_PROMPT = """You are reviewing a full security scan of an application or infrastructure target.
-The JSON lists summary counts and individual findings (secrets in snippets are already masked).
+_SCAN_REPORT_PROMPT = """You are a senior application security engineer writing a bug bounty grade report.
+The JSON holds findings that were already pre-filtered to classes that can cost the company money or
+customer data: remote code execution (RCE), injections (SQL, NoSQL, XML/XXE, LDAP, XPath), LFR/LFI/RFI,
+SSRF, memory leaks, business logic flaws, IDOR, access control flaws, account takeover,
+authentication/authorization flaws, XSS and CSRF. Each finding has impact_class and an exploitability
+estimate. Secrets in snippets are already masked. filter.dropped tells how many findings were left out.
 
-Write a report for developers. The UI renders your answer as markdown inside section cards.
-It already shows severity and category totals separately — do NOT repeat a full count table.
+Report ONLY vulnerabilities that an attacker can actually exploit to execute code, steal or change
+customer data, take over accounts, bypass authentication or authorization, or cause financial loss.
+Before including a finding, check it against the code excerpts and context:
+- Leave it out if untrusted input clearly cannot reach it, it only runs in tests, build scripts or
+  examples, the value is a constant, or the impact is cosmetic.
+- Leave out hygiene issues entirely (weak hashes, missing headers, outdated packages without a reachable
+  vulnerable path, debug flags, logging, linting) even if they slipped through the pre-filter.
+- Do not list or count the findings you left out, and do not add a "lower priority" or "hygiene" section.
+- Merge duplicates of the same issue at the same place into one item.
+
+The UI renders your answer as markdown inside section cards.
 
 Format rules (follow strictly):
 - Start with one line: # Short title with the target name (plain text, no backticks in the title).
 - Then one blank line, then sections only as level-2 headings: ## Section name
 - Use ### only for subsections inside a section.
-- Use bullet lists (- item) or numbered lists (1. item) for details; keep paragraphs short.
+- Use bullet lists (- item) or numbered lists (1. item); keep paragraphs short.
 - Separate major sections with a blank line; do not use --- horizontal rules.
 - Bold sparingly (**label:** value). Use `backticks` only for file paths, rule ids, and tool names.
 - No HTML, no JSON, no code fences unless quoting a single line from a finding.
 
 Required sections (exact ## titles, in this order):
-## Overall risk posture
-## Most critical issues to fix first
-## Verified against source
-## Recurring themes
-## Likely real exposure vs lower-priority hygiene
+## Business impact summary
+Two to four sentences: which exploitable vulnerabilities exist and what they put at risk (money,
+customer data, accounts). If after review nothing is exploitable, say so plainly and stop after this
+section and "Remediation priority".
+## Exploitable vulnerabilities
+One ### subsection per vulnerability class that has at least one exploitable finding, most damaging
+class first (RCE, injections, LFR/LFI/RFI, SSRF, auth flaws, account takeover, IDOR, access control,
+business logic, memory leaks, XSS/CSRF). Inside it, a numbered list; each item:
+**title** — severity, `path:line`; **Entry point:** how attacker input reaches it;
+**Impact:** what is lost (money, which customer data, which accounts);
+**Verdict:** confirmed / needs manual review, with one sentence citing the code excerpt or what is missing.
 ## Remediation priority
+A numbered list of concrete fixes (at most 8), most damaging first.
 
-When source.repository_url and/or source.code_excerpts are present, treat them as ground truth from the scanned tree.
-Open the repository link mentally via source.browse_url; each excerpt includes github_url for the exact file/line.
+When source.repository_url and/or source.code_excerpts are present, treat them as ground truth from the scanned tree;
+each excerpt includes github_url for the exact file/line.
 
-In "Most critical issues to fix first", use a numbered list (top 5 max). Each item: title, severity, category, location, one sentence why it matters.
-In "Verified against source", for the top issues (and any dependency/CVE flags such as nanoid), label each as:
-**confirmed**, **likely false positive**, or **needs manual review**, with one sentence citing source.code_excerpts or explaining missing source.
-In "Remediation priority", use a numbered list of concrete actions (5–8 items).
-
-Do not invent findings. Do not write exploit code or attack steps.
-If the JSON says truncated is true, mention it once in Overall risk posture.
+Do not invent findings. Do not write exploit code or attack payloads.
+If the JSON says truncated is true, mention it once in Business impact summary.
 
 Scan data:
 """
@@ -577,7 +597,43 @@ def chat_scan_report(
     return _call_chat(provider, api_key, model, api_messages, timeout_sec=120.0)
 
 
-def explain_scan_report(provider: str, api_key: str, model: str, scan: dict, findings: list) -> str:
+NO_IMPACT_REPORT = """# {target}: no exploitable vulnerabilities
+
+## Business impact summary
+None of the {total} findings belongs to a class that can cost money or customer data (RCE, injections,
+LFR/LFI/RFI, SSRF, memory leaks, business logic, IDOR, access control, account takeover,
+authentication/authorization flaws, XSS/CSRF) at medium severity or above in production code.
+{dropped}
+
+## Remediation priority
+1. Nothing urgent. Review the full findings table for hygiene work when convenient.
+"""
+
+
+def scan_report(provider: str, api_key: str, model: str, scan: dict, findings: list) -> dict:
+    """The AI report over the impactful findings only, plus what the filter kept and dropped."""
+    from grephunt.finding_model.impact_filter import filter_impactful
+
+    kept, stats = filter_impactful(findings)
+    keys = [
+        {"fingerprint": item.get("fingerprint"), "correlation_key": item.get("correlation_key"), "impact_class": item["impact_class"]}
+        for item in kept
+    ]
+    if not kept:
+        reasons = ", ".join(f"{count} {reason}" for reason, count in stats["dropped_by_reason"].items())
+        text = NO_IMPACT_REPORT.format(
+            target=scan.get("target_label") or "Scan",
+            total=stats["total"],
+            dropped=f"Left out: {reasons}." if reasons else "",
+        )
+        return {"text": text, "filter": stats, "kept": keys}
+    text = explain_scan_report(provider, api_key, model, scan, kept, filter_stats=stats)
+    return {"text": text, "filter": stats, "kept": keys}
+
+
+def explain_scan_report(
+    provider: str, api_key: str, model: str, scan: dict, findings: list, filter_stats: dict | None = None
+) -> str:
     rows = [item for item in findings if isinstance(item, dict)]
     rows.sort(
         key=lambda item: (
@@ -608,6 +664,7 @@ def explain_scan_report(provider: str, api_key: str, model: str, scan: dict, fin
         "counts_by_severity": by_severity,
         "counts_by_category": by_category,
         "scanners": scan.get("scanners"),
+        "filter": filter_stats or {},
         "source": {
             **source,
             "code_excerpts": source_excerpts,
@@ -619,10 +676,17 @@ def explain_scan_report(provider: str, api_key: str, model: str, scan: dict, fin
 
 _TRIAGE_PROMPT = """You are triaging security findings. Decide if each one is a real issue in the shown code.
 Reply with a JSON array only, no markdown. Each element:
-{"id": "F-001", "verdict": "confirmed" | "likely" | "false_positive", "reason": "one sentence citing the file"}
-confirmed: the snippet shows a bug and the input can come from outside the program, with no sanitizer in view.
-likely: the pattern is dangerous but the snippet does not show that an attacker controls the input.
-false_positive: a test, a comment, a safe API, generated code, or a copied challenge file rather than the running application.
+{"id": "F-001", "verdict": "confirmed" | "likely" | "false_positive", "reason": "one sentence citing the file and line"}
+"code" holds the whole enclosing function (code_kind "function"), the whole file when the code is not
+inside a function ("file"), or the lines around the finding ("window"), each line prefixed with its number.
+Before answering, read the path from the input to the reported line and look for anything that makes it safe:
+escaping (mysqli_real_escape_string inside quotes, htmlspecialchars), hashing (md5, password_hash), casts and
+type checks (intval, (int), is_numeric on every part, typeof x === 'string'), allowlists (in_array,
+array_key_exists, a fixed map of choices), prepared statements. Name the line number of that check in the reason.
+confirmed: input from outside the program reaches the reported line with no such check on the way.
+likely: the pattern is dangerous but the shown code does not prove that an attacker controls the input.
+false_positive: a check above makes it safe (cite its line), or it is a test, a comment, a safe API, generated code,
+or a copied challenge file rather than the running application.
 Use the map context when given: a route that reaches the code, and whether a query is built from variables.
 Do not write exploit code, payloads, or attack steps. Do not invent files.
 
@@ -630,6 +694,7 @@ Findings:
 """
 
 TRIAGE_BATCH = 24
+TRIAGE_CODE_LIMIT = 3500
 
 
 def _json_array(text: str) -> list:
@@ -655,6 +720,7 @@ def triage_findings(provider: str, api_key: str, model: str, findings: list) -> 
         location = item.get("location") if isinstance(item.get("location"), dict) else {}
         context = item.get("context") if isinstance(item.get("context"), dict) else {}
         snippet = item.get("snippet") if isinstance(item.get("snippet"), str) else ""
+        code = item.get("code_context") if isinstance(item.get("code_context"), str) else ""
         rows.append(
             {
                 "id": f"F-{index:03d}",
@@ -670,7 +736,8 @@ def triage_findings(provider: str, api_key: str, model: str, findings: list) -> 
                 "routes": [route.get("label") for route in (context.get("routes") or [])[:3] if isinstance(route, dict)],
                 "query_from_variables": bool((context.get("database") or {}).get("dynamic")) if isinstance(context.get("database"), dict) else False,
                 "message": mask_secrets(str(item.get("message") or ""))[:300],
-                "snippet": mask_secrets(snippet)[:500],
+                "code_kind": item.get("code_kind") if code else "snippet",
+                "code": mask_secrets(code)[:TRIAGE_CODE_LIMIT] if code else mask_secrets(snippet)[:500],
             }
         )
     if not rows:

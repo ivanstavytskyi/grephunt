@@ -1,3 +1,4 @@
+import { aiButton, aiIcon } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { ListOrdered, LoaderCircle } from "lucide-react";
 import { useState } from "react";
@@ -60,9 +61,9 @@ export function PrioritizeAi({ scanId, findings }: { scanId: string; findings: F
           disabled={busy || !saved || findings.length === 0}
           onClick={() => void run(false)}
           title={saved ? "Ask the model to confirm each finding or mark it a likely false positive, then sort by that" : "Add a Gemini or DeepSeek key in the AI settings first"}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-signal/60 px-3 text-sm text-ink-text hover:bg-signal/10 disabled:cursor-not-allowed disabled:opacity-40"
+          className={`${aiButton} h-9 px-3.5`}
         >
-          {busy ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <ListOrdered className="size-4 text-signal" aria-hidden="true" />}
+          {busy ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <ListOrdered className={`size-4 ${aiIcon}`} aria-hidden="true" />}
           {busy ? `Reviewing ${progress.done}/${progress.total}` : reviewed ? `Sort with AI (${reviewed} reviewed)` : "Sort with AI"}
         </button>
         {reviewed > 0 && !busy && (

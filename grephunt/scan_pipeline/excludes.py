@@ -25,6 +25,10 @@ DEFAULT_EXCLUDES = [
 ]
 
 
+# Build output stays in the report for secrets: keys baked into bundles are real leaks.
+SECRET_KEPT_PATTERNS = frozenset({"build", "dist", "out", ".next", "*.min.js", "*.map"})
+
+
 def load_ignore_file(project: Path) -> list[str]:
     path = project / IGNORE_FILE
     if not path.is_file():

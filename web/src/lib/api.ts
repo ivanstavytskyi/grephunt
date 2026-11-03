@@ -15,6 +15,21 @@ export async function fetchTools(): Promise<ToolInfo[]> {
   return response.json();
 }
 
+export type ScanRules = {
+  skip_build_dirs: {
+    groups: { label: string; folders: string[] }[];
+    full_project_scanners: string[];
+    dependency_scanners?: string[];
+    secret_scanners?: string[];
+  };
+};
+
+export async function fetchScanRules(): Promise<ScanRules> {
+  const response = await fetch("/api/scan-rules");
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
 export async function fetchScans(): Promise<ScanSummary[]> {
   const response = await fetch("/api/scans");
   if (!response.ok) throw new Error(await readError(response));
@@ -99,6 +114,8 @@ export async function startScan(input: {
   scanners: string[];
   params: Record<string, Record<string, unknown>>;
   useDocker: boolean;
+  skipBuildDirs?: boolean;
+  skipDirs?: string[];
 }): Promise<ScanSummary> {
   const body = new FormData();
   if (input.githubUrl && input.githubUrl.trim()) {
@@ -117,6 +134,8 @@ export async function startScan(input: {
   body.set("scanners", input.scanners.join(","));
   body.set("params", JSON.stringify(input.params));
   body.set("use_docker", input.useDocker ? "true" : "false");
+  body.set("skip_build_dirs", input.skipBuildDirs === false ? "false" : "true");
+  if (input.skipDirs) body.set("skip_dirs", JSON.stringify(input.skipDirs));
   const response = await fetch("/api/scans", { method: "POST", body });
   if (!response.ok) throw new Error(await readError(response));
   return response.json();

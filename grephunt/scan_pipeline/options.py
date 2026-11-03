@@ -14,6 +14,18 @@ class ScanOptions(BaseModel):
     target_kind: Literal["source", "image"] = "source"
     """image: the target is a container image tar (docker save or OCI layout), not a folder."""
     image_format: Literal["docker", "oci"] = "docker"
+    skip_build_dirs: bool = False
+    """Legacy flag: when skip_dirs is None, True means skip the standard build/dependency folders."""
+    skip_dirs: list[str] | None = None
+    """Explicit folder names to skip (the console ruleset: chosen groups + custom). None falls back to skip_build_dirs."""
+
+    @property
+    def effective_skip_dirs(self) -> frozenset[str]:
+        """The folder names to leave out of the scan view. Empty means scan everything."""
+        if self.skip_dirs is not None:
+            return frozenset(name for name in self.skip_dirs if name and name.strip())
+        from grephunt.scan_pipeline.scan_view import SKIPPED_DIRS
+        return SKIPPED_DIRS if self.skip_build_dirs else frozenset()
 
     @model_validator(mode="before")
     @classmethod

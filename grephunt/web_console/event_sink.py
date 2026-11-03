@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+from datetime import datetime, timezone
 
 from grephunt.config import DEFAULT_TENANT
 from grephunt.database.tables import DismissedFindingRow, EventRow, FindingRow, ScanRow, TaskRow
@@ -114,6 +115,55 @@ def _apply_task(session, scan_id: str, event: ScanEvent) -> None:
         row.error = event.message[:2000]
     elif event.type == EventType.TASK_FINISHED and status == "success":
         row.error = None
+    image = event.data.get("image")
+    if isinstance(image, str) and image:
+        row.image = image
+    row.details = json.dumps(merge_details(row.details, event, status), ensure_ascii=False)
+
+
+# Event data keys copied into the task details as they are.
+_DETAIL_KEYS = (
+    "mode", "cloud", "timeout_sec", "image", "pulled", "pull_sec", "binary", "exit_code", "run_sec",
+    "stdout_bytes", "stderr_bytes", "raw_findings", "raw_severities", "accepted", "severities",
+    "rules", "files", "sarif_bytes",
+)
+_TIMELINE_LIMIT = 20
+
+
+def merge_details(stored: str | None, event: ScanEvent, status: str | None, now: datetime | None = None) -> dict:
+    """Fold one scanner event into the task's details JSON."""
+    try:
+        details = json.loads(stored) if stored else {}
+    except ValueError:
+        details = {}
+    if not isinstance(details, dict):
+        details = {}
+    at = (now or datetime.now(timezone.utc)).isoformat()
+    details.setdefault("started_at", at)
+    data = event.data or {}
+    for key in _DETAIL_KEYS:
+        if key in data and data[key] is not None:
+            details[key] = data[key]
+    container = data.get("container")
+    if isinstance(container, dict):
+        merged = dict(details.get("container") or {})
+        merged.update({key: value for key, value in container.items() if value is not None})
+        details["container"] = merged
+    phase = data.get("phase")
+    if event.type == EventType.TASK_FINISHED:
+        if status not in {"success"}:
+            details["failed_phase"] = details.get("phase") or "queued"
+        phase = "done"
+        details["finished_at"] = at
+    if isinstance(phase, str) and phase and phase != details.get("phase"):
+        details["phase"] = phase
+        timeline = list(details.get("timeline") or [])
+        timeline.append({"phase": phase, "at": at})
+        details["timeline"] = timeline[-_TIMELINE_LIMIT:]
+    if event.message:
+        details["last_message"] = event.message[:500]
+    details["last_event_at"] = at
+    return details
 
 
 def _apply_finding(session, scan_id: str, event: ScanEvent) -> None:

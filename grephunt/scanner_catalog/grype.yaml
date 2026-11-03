@@ -55,3 +55,5 @@ cap_drop:
 no_new_privileges: true
 # Off by default: another default tool covers this category (see scanner_catalog/ui.yaml).
 default_enabled: false
+# Reads installed packages: keeps node_modules and vendor when build folders are skipped.
+needs_dependency_dirs: true
