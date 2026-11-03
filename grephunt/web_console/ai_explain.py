@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import re
 import socket
+
+from grephunt.finding_model.redaction import mask_secrets
 import time
 import urllib.error
 import urllib.request
@@ -253,22 +255,86 @@ def check_key(provider: str, api_key: str, model: str) -> None:
     _call(provider, api_key, model, "Reply with the single word ok.", require_text=False)
 
 
-def explain_finding(provider: str, api_key: str, model: str, finding: dict) -> str:
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+_MAX_SCAN_FINDINGS = 180
+
+
+def _brief_finding(finding: dict) -> dict:
     location = finding.get("location") if isinstance(finding.get("location"), dict) else {}
-    brief = {
-        "title": finding.get("title"),
+    message = mask_secrets(finding.get("message")) or ""
+    if len(message) > 400:
+        message = message[:397] + "..."
+    snippet = mask_secrets(finding.get("snippet"))
+    if isinstance(snippet, str) and len(snippet) > 240:
+        snippet = snippet[:237] + "..."
+    return {
+        "title": mask_secrets(finding.get("title")),
         "severity": finding.get("severity"),
+        "category": finding.get("category"),
         "tool": finding.get("tool"),
         "rule_id": finding.get("rule_id"),
-        "category": finding.get("category"),
-        "message": finding.get("message"),
+        "message": message,
         "path": location.get("path"),
         "start_line": location.get("start_line"),
-        "snippet": finding.get("snippet"),
+        "snippet": snippet,
         "cwe": finding.get("cwe"),
         "cve": finding.get("cve"),
         "package": finding.get("package"),
         "fixed_version": finding.get("fixed_version"),
     }
-    text = _PROMPT + json.dumps(brief, ensure_ascii=False, indent=2)
+
+
+def explain_finding(provider: str, api_key: str, model: str, finding: dict) -> str:
+    text = _PROMPT + json.dumps(_brief_finding(finding), ensure_ascii=False, indent=2)
+    return _call(provider, api_key, model, text)
+
+
+_SCAN_REPORT_PROMPT = """You are reviewing a full security scan of an application or infrastructure target.
+The JSON lists summary counts and individual findings (secrets in snippets are already masked).
+
+Write a clear report for a developer team. Use markdown headings and bullet lists where helpful.
+
+Cover:
+1. Overall risk posture — how serious is this target right now?
+2. The most critical issues to fix first (severity, category, file/line, why it matters).
+3. Recurring themes (dependency CVEs, secrets, misconfigurations, code patterns).
+4. Likely real exposure vs lower-priority hygiene (only from the data given).
+5. A short numbered remediation priority list.
+
+Do not invent findings. Do not write exploit code or attack steps.
+If findings were truncated, say so and use counts plus included rows.
+
+Scan data:
+"""
+
+
+def explain_scan_report(provider: str, api_key: str, model: str, scan: dict, findings: list) -> str:
+    rows = [item for item in findings if isinstance(item, dict)]
+    rows.sort(
+        key=lambda item: (
+            _SEVERITY_RANK.get(str(item.get("severity") or "info").lower(), 5),
+            str((item.get("location") or {}).get("path") or ""),
+        )
+    )
+    total = len(rows)
+    included = rows[:_MAX_SCAN_FINDINGS]
+    by_severity: dict[str, int] = {}
+    by_category: dict[str, int] = {}
+    for item in rows:
+        sev = str(item.get("severity") or "info").lower()
+        cat = str(item.get("category") or "unknown").lower()
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+        by_category[cat] = by_category.get(cat, 0) + 1
+    payload = {
+        "target_label": scan.get("target_label"),
+        "target_path": scan.get("target_path"),
+        "finding_count": total,
+        "included_in_prompt": len(included),
+        "truncated": total > len(included),
+        "counts_by_severity": by_severity,
+        "counts_by_category": by_category,
+        "scanners": scan.get("scanners"),
+        "findings": [_brief_finding(item) for item in included],
+    }
+    text = _SCAN_REPORT_PROMPT + json.dumps(payload, ensure_ascii=False, indent=2)
     return _call(provider, api_key, model, text)

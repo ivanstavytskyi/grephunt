@@ -51,6 +51,8 @@ class ToolDescriptor(BaseModel):
     memory: str = "1g"
     pids_limit: int = 512
     output_filename: str
+    produced_output: str | None = None
+    """File name under the scan output directory when the tool does not write output_filename directly."""
     raw_output_filename: str | None = None
     """The file the tool writes when it cannot write SARIF itself. The hook converts it to output_filename."""
     rules_version: str | None = None

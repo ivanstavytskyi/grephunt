@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Finding, ScanEvent, Severity, TaskSummary } from "@/api/types";
 import { ExplainAi } from "@/components/explain-ai";
+import { ScanReportAi } from "@/components/scan-report-ai";
 import { FindingsTable } from "@/components/findings-table";
 import { SelectMenu } from "@/components/select-menu";
 import { PanelBoundary } from "@/components/panel-boundary";
@@ -257,6 +258,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               .map((name) => ({ value: name.toLowerCase(), label: name })),
           ]}
         />
+        <ScanReportAi scan={scan.data} findings={rows} />
       </div>
 
       <div className="mt-3 grid items-start gap-4 xl:grid-cols-[1fr_320px]">

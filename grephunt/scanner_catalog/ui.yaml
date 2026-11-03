@@ -1,0 +1,84 @@
+semgrep:
+  group: code
+  languages: Python, Go, Java, JavaScript, TypeScript, and more
+  purpose: Broad rule-based static analysis for bugs and unsafe patterns
+trivy:
+  group: dependency
+  languages: Lockfiles and manifests (npm, pip, Go, and others)
+  purpose: Known CVEs in dependencies, secrets, and IaC misconfigurations
+bearer:
+  group: code
+  languages: Go, Java, JS/TS, PHP, Python, Ruby
+  purpose: Data-flow analysis for privacy and security risks in application code
+bandit:
+  group: code
+  languages: Python
+  purpose: Common Python security issues such as unsafe APIs and hardcoded secrets
+gosec:
+  group: code
+  languages: Go
+  purpose: Go-specific security checks on source code
+devskim:
+  group: code
+  languages: C/C++, C#, Go, Java, JavaScript, PHP, Python, Ruby, and more
+  purpose: Microsoft DevSkim rules for dangerous APIs and weak crypto
+gitleaks:
+  group: secret
+  languages: Any text in the repository
+  purpose: Find leaked API keys, tokens, and passwords in git history and files
+betterleaks:
+  group: secret
+  languages: Any text in the repository
+  purpose: Actively maintained Gitleaks fork with the same SARIF output
+trufflehog:
+  group: secret
+  languages: Any text; container images as tar
+  purpose: High-entropy secret detection without verifying keys against providers
+kingfisher:
+  group: secret
+  languages: Any text in the repository
+  purpose: Fast secret matching with optional validation disabled in GrepHunt
+secretlint:
+  group: secret
+  languages: Markdown, env files, config, and source
+  purpose: Lint-style rules for AWS keys, Slack tokens, and other credential patterns
+grype:
+  group: dependency
+  languages: Lockfiles and SBOM inputs
+  purpose: CVE matching from the Grype vulnerability database
+osv-scanner:
+  group: dependency
+  languages: npm, pip, Go, Maven, NuGet, and other OSV ecosystems
+  purpose: Offline-friendly CVE checks using Google OSV archives
+syft:
+  group: dependency
+  languages: Project manifests and container images
+  purpose: Generate a CycloneDX SBOM (no vulnerability findings)
+snyk-code:
+  group: code
+  languages: Java, JavaScript, Python, and other Snyk-supported stacks
+  purpose: Snyk static analysis (runs in Snyk cloud; connect an account first)
+snyk-open-source:
+  group: dependency
+  languages: Ecosystems supported by Snyk Open Source
+  purpose: Dependency vulnerabilities via Snyk (cloud; connect an account first)
+checkov:
+  group: iac
+  languages: Terraform, CloudFormation, Kubernetes, Docker, and more
+  purpose: Policy checks across cloud and IaC templates
+kics:
+  group: iac
+  languages: Terraform, Kubernetes, Docker, Ansible, Helm, and more
+  purpose: Query-based misconfiguration detection in infrastructure files
+hadolint:
+  group: iac
+  languages: Dockerfiles
+  purpose: Dockerfile best practices and unsafe container build patterns
+kubescape:
+  group: iac
+  languages: Kubernetes YAML and Helm charts
+  purpose: NSA/CIS-style Kubernetes hardening controls on manifests
+zizmor:
+  group: iac
+  languages: GitHub Actions workflows
+  purpose: Supply-chain and misconfiguration audits for CI workflows (offline mode)

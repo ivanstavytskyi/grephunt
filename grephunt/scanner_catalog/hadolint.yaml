@@ -1,0 +1,28 @@
+name: hadolint
+module: sast
+category: misconfig
+binary: hadolint
+image: hadolint/hadolint:v2.12.0-alpine
+version: "2.12.0"
+container_binary: /bin/sh
+timeout_sec: 600
+network: false
+user: "65534"
+cpus: "1"
+memory: 1g
+pids_limit: 128
+applies_to: ["dockerfile", "dockerfile.*", "*.dockerfile"]
+args:
+  - -c
+  - >-
+    files=$(find {src} -maxdepth 3 -type f \( -iname dockerfile -o -iname 'dockerfile.*' -o -iname '*.dockerfile' \) 2>/dev/null | head -20);
+    if [ -z "$files" ]; then exit 0; fi;
+    exec hadolint -f sarif $files
+output_source: stdout
+output_filename: hadolint.sarif
+ok_exit_codes: [0, 1]
+target_mount: /src
+output_mount: /out
+cap_drop:
+  - ALL
+no_new_privileges: true

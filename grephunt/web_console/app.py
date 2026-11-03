@@ -19,7 +19,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from grephunt.integrations import snyk as snyk_integration
-from grephunt.web_console.ai_explain import DEEPSEEK_MODELS, GEMINI_MODELS, check_key, explain_finding
+from grephunt.web_console.ai_explain import (
+    DEEPSEEK_MODELS,
+    GEMINI_MODELS,
+    ProviderError,
+    check_key,
+    explain_finding,
+    explain_scan_report,
+)
 from grephunt.web_console.github_source import download_github_zip
 from grephunt.web_console.uploads import safe_extract
 from grephunt.scan_pipeline.image_archive import detect_image_format
@@ -32,14 +39,14 @@ from grephunt.web_console.scans import (
     list_tools,
     session_factory,
 )
-from grephunt.config import DATA_DIR, WEB_DIST
+from grephunt.config import DATA_DIR, WEB_DIST, max_image_upload_bytes, max_upload_bytes, upload_limit_label
 from grephunt.database.tables import ScanRow, TaskRow
 from grephunt.execution.docker import docker_daemon_ready, purge_stale_grephunt_containers
 
-MAX_UPLOAD = 500_000_000
-MAX_UPLOAD_LABEL = f"{MAX_UPLOAD // 1_000_000} MB"
-MAX_IMAGE_UPLOAD = int(os.environ.get("GREPHUNT_MAX_IMAGE_MB", "4096")) * 1_000_000
-MAX_IMAGE_LABEL = f"{MAX_IMAGE_UPLOAD // 1_000_000} MB"
+MAX_UPLOAD = max_upload_bytes()
+MAX_UPLOAD_LABEL = upload_limit_label(MAX_UPLOAD)
+MAX_IMAGE_UPLOAD = max_image_upload_bytes()
+MAX_IMAGE_LABEL = upload_limit_label(MAX_IMAGE_UPLOAD)
 _GITHUB_URL = re.compile(
     r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:/tree/([^?#]+))?/?$"
 )
@@ -278,6 +285,7 @@ async def start(
     path: str | None = Form(default=None),
     scanners: str = Form(default="semgrep,trivy"),
     configs: str = Form(default="p/default"),
+    trivy_scanners: str = Form(default="vuln,secret,misconfig"),
     use_docker: str = Form(default="true"),
     archive: UploadFile | None = File(default=None),
     files: list[UploadFile] | None = File(default=None),
@@ -287,6 +295,7 @@ async def start(
 ) -> dict:
     names = [item.strip().lower() for item in scanners.split(",") if item.strip()]
     config_list = [item.strip() for item in configs.split(",") if item.strip()]
+    trivy_list = [item.strip().lower() for item in trivy_scanners.split(",") if item.strip()]
     if not names:
         raise HTTPException(status_code=400, detail="select at least one scanner")
 
@@ -368,6 +377,7 @@ async def start(
             use_docker.lower() not in {"0", "false", "no"},
             target_kind=target_kind,
             image_format=image_format,
+            trivy_scanners=trivy_list,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -486,7 +496,7 @@ def ai_models() -> dict:
 def ai_check(body: dict = Body()) -> dict:
     try:
         check_key(str(body.get("provider") or ""), str(body.get("api_key") or ""), str(body.get("model") or ""))
-    except ValueError as exc:
+    except (ValueError, ProviderError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
 
@@ -503,7 +513,30 @@ def ai_explain(body: dict = Body()) -> dict:
             str(body.get("model") or ""),
             finding,
         )
-    except ValueError as exc:
+    except (ValueError, ProviderError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"text": text}
+
+
+@app.post("/api/ai/scan-report")
+def ai_scan_report(body: dict = Body()) -> dict:
+    scan = body.get("scan")
+    findings = body.get("findings")
+    if not isinstance(scan, dict):
+        raise HTTPException(status_code=400, detail="scan summary is missing")
+    if not isinstance(findings, list):
+        raise HTTPException(status_code=400, detail="findings list is missing")
+    if not findings:
+        raise HTTPException(status_code=400, detail="this scan has no findings to summarize")
+    try:
+        text = explain_scan_report(
+            str(body.get("provider") or ""),
+            str(body.get("api_key") or ""),
+            str(body.get("model") or ""),
+            scan,
+            findings,
+        )
+    except (ValueError, ProviderError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"text": text}
 

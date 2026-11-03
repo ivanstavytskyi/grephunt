@@ -56,7 +56,7 @@ cd web && npm run dev
 
 The dev UI on http://127.0.0.1:5173 proxies `/api` to port 4000.
 
-Give a folder on this machine, or upload a zip. Project code is mounted read-only and is never executed.
+Give a folder on this machine, upload a zip, or upload a container image as a `.tar`. Project code and image archives are mounted read-only and are never executed.
 
 ## Container images
 
@@ -66,7 +66,9 @@ A container image can be scanned from a tar file: `docker save -o app.tar myapp:
 python -m grephunt scan --image app.tar
 ```
 
-The tar is not unpacked by GrepHunt. It is checked (`manifest.json`, or `oci-layout` with `index.json`) and mounted read-only into the scanner containers. Trivy, Grype, Syft, and OSV-Scanner read images; the other scanners skip an image scan. Default excludes (tests, build, dist) are not applied to images. The upload limit for images is 4096 MB, set by `GREPHUNT_MAX_IMAGE_MB`.
+The tar is not unpacked by GrepHunt. It is checked (`manifest.json`, or `oci-layout` with `index.json`) and mounted read-only into the scanner containers. **Trivy**, **Grype**, **Syft**, **OSV-Scanner**, and **TruffleHog** scan images; code and IaC scanners skip an image target. Default excludes (tests, build, dist) are not applied to images.
+
+Upload limits default to **10 GB** for zip archives, folders, GitHub downloads, and image tar files. Override with `GREPHUNT_MAX_UPLOAD_MB` or `GREPHUNT_MAX_IMAGE_MB`.
 
 A descriptor opts in with `image_args`, a template where `{src}` is the tar and `{image_ref}` is `docker-archive:<tar>` or `oci-archive:<tar>`.
 
@@ -125,6 +127,16 @@ Snyk exit code 3 (no supported files) marks the task as skipped. For an image ta
 None of them tries a found key against the provider's API: checking a client's live credentials is a decision for a person, not a default.
 
 A secret finding says where a credential is, not what it is. For every tool, the SARIF parser masks secret values in the snippet, message, and title of secret findings (first four characters kept), so they are not stored, shown, or sent to an AI provider. The TruffleHog and Secretlint converters never copy the raw value or the file content.
+
+## IaC scanners
+
+| Scanner | Targets | Notes |
+|---|---|---|
+| Checkov | Terraform, CloudFormation, Kubernetes, Docker, and more | SARIF via `--output-file-path`; values stay in the report on disk only through the masked pipeline |
+| KICS | Terraform, Kubernetes, Docker, Helm, Ansible, and more | SARIF; exit code 50 means findings were present |
+| Hadolint | Dockerfiles | SARIF on stdout; skipped when no Dockerfile is present |
+| Kubescape | Kubernetes YAML and Helm | CLI downloaded once from GitHub releases into `data/caches/grephunt-kubescape/`; `--keep-local` |
+| zizmor | GitHub Actions workflows | `--offline` and SARIF on stdout; skipped without `.github/workflows` |
 
 ## Dependency scanners
 

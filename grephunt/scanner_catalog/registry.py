@@ -19,6 +19,7 @@ from grephunt.scanner_hooks.snyk import SnykHook
 from grephunt.scanner_hooks.trivy import TrivyHook
 
 _DIR = Path(__file__).resolve().parent
+_UI_PATH = _DIR / "ui.yaml"
 _HOOKS = {
     "bearer": BearerHook,
     "grype": GrypeHook,
@@ -30,10 +31,19 @@ _HOOKS = {
 }
 
 
+def load_ui_meta() -> dict[str, dict[str, str]]:
+    if not _UI_PATH.is_file():
+        return {}
+    raw = yaml.safe_load(_UI_PATH.read_text(encoding="utf-8")) or {}
+    return {name: meta for name, meta in raw.items() if isinstance(meta, dict)}
+
+
 def load_descriptors(directory: Path | None = None) -> dict[str, ToolDescriptor]:
     folder = directory or _DIR
     found: dict[str, ToolDescriptor] = {}
     for path in sorted(folder.glob("*.yaml")):
+        if path.name in {"ui.yaml"}:
+            continue
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         descriptor = ToolDescriptor.model_validate(raw)
         found[descriptor.name] = descriptor

@@ -182,6 +182,19 @@ def test_secret_scanners_find_the_fake_github_token(tmp_path: Path):
 
 
 @pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_iac_scanners_flag_privileged_container(tmp_path: Path):
+    tools = load_tools()
+    project = ROOT / "samples" / "iac_vuln"
+    options = ScanOptions(excludes=[], use_docker=True)
+    for name in ("checkov", "kics", "hadolint", "kubescape", "zizmor"):
+        result = asyncio.run(run_scan(project, tmp_path / name, [tools[name]], options))
+        assert result.runs[0].status.value == "success", (name, result.runs[0].error)
+        assert result.findings, name
+        if name == "kubescape":
+            assert any("privileged" in (item.message or "").lower() for item in result.findings), name
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
 def test_snyk_open_source_with_a_connected_account(tmp_path: Path):
     from grephunt.integrations import snyk
 

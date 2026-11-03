@@ -7,8 +7,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-MAX_UPLOAD = 500_000_000
-MAX_UPLOAD_LABEL = f"{MAX_UPLOAD // 1_000_000} MB"
+from grephunt.config import max_upload_bytes, upload_limit_label
+
+MAX_UPLOAD = max_upload_bytes()
+MAX_UPLOAD_LABEL = upload_limit_label(MAX_UPLOAD)
 
 _REPO = re.compile(
     r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?"
@@ -39,7 +41,7 @@ def download_github_zip(raw: str, destination: Path, max_bytes: int) -> tuple[st
             while chunk := response.read(1024 * 1024):
                 total += len(chunk)
                 if total > max_bytes:
-                    raise ValueError(f"repository archive is larger than {max_bytes // 1_000_000} MB")
+                    raise ValueError(f"repository archive is larger than {upload_limit_label(max_bytes)}")
                 handle.write(chunk)
     except urllib.error.HTTPError as exc:
         raise ValueError("repository was not found, or it is private") from exc

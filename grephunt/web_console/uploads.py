@@ -4,7 +4,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-MAX_UNCOMPRESSED = 5_000_000_000
+MAX_UNCOMPRESSED = 15_000_000_000
 MAX_MEMBERS = 450_000
 
 def safe_extract(archive: Path, destination: Path, max_bytes: int = MAX_UNCOMPRESSED) -> None:

@@ -15,7 +15,7 @@ from grephunt.scan_pipeline.pipeline import run_scan
 from grephunt.report_output.json_export import write_findings_json
 from grephunt.database.tables import EventRow, FindingRow, ScanRow, TaskRow, make_session_factory
 from grephunt.finding_model.record import ScanResult
-from grephunt.scanner_catalog.registry import load_tools
+from grephunt.scanner_catalog.registry import load_tools, load_ui_meta
 from grephunt.execution.docker import purge_stale_grephunt_containers
 from grephunt.web_console.event_sink import EventSink
 
@@ -36,20 +36,29 @@ def reset_session_factory(factory=None) -> None:
 
 
 def list_tools() -> list[dict]:
-    return [
-        {
-            "name": tool.name,
-            "module": tool.descriptor.module.value,
-            "image": tool.descriptor.image,
-            "version": tool.descriptor.version,
-            "network": tool.descriptor.network,
-            "prepare_network": tool.descriptor.prepare_network,
-            "scans_images": bool(getattr(tool.hook, "supports_image", lambda: False)()),
-            "default_enabled": tool.descriptor.default_enabled,
-            "cloud": tool.descriptor.cloud,
-        }
-        for tool in load_tools().values()
-    ]
+    ui = load_ui_meta()
+    rows: list[dict] = []
+    for tool in load_tools().values():
+        meta = ui.get(tool.name, {})
+        category = tool.descriptor.category.value if tool.descriptor.category else None
+        rows.append(
+            {
+                "name": tool.name,
+                "module": tool.descriptor.module.value,
+                "image": tool.descriptor.image,
+                "version": tool.descriptor.version,
+                "network": tool.descriptor.network,
+                "prepare_network": tool.descriptor.prepare_network,
+                "scans_images": bool(getattr(tool.hook, "supports_image", lambda: False)()),
+                "default_enabled": tool.descriptor.default_enabled,
+                "cloud": tool.descriptor.cloud,
+                "finding_category": category,
+                "group": meta.get("group") or ("secret" if category == "secret" else "code"),
+                "languages": meta.get("languages") or "",
+                "purpose": meta.get("purpose") or "",
+            }
+        )
+    return rows
 
 
 def _scan_dir(scan_id: str) -> Path:
@@ -66,6 +75,7 @@ def create_scan(
     use_docker: bool,
     target_kind: str = "source",
     image_format: str = "docker",
+    trivy_scanners: list[str] | None = None,
 ) -> str:
     known = load_tools()
     unknown = [name for name in scanners if name not in known]
@@ -94,7 +104,16 @@ def create_scan(
         session.commit()
     options_configs = configs or ["p/default"]
     task = asyncio.get_running_loop().create_task(
-        _execute(scan_id, target, scanners, options_configs, use_docker, target_kind, image_format)
+        _execute(
+            scan_id,
+            target,
+            scanners,
+            options_configs,
+            use_docker,
+            target_kind,
+            image_format,
+            trivy_scanners,
+        )
     )
     _TASKS[scan_id] = task
     return scan_id
@@ -108,6 +127,7 @@ async def _execute(
     use_docker: bool,
     target_kind: str = "source",
     image_format: str = "docker",
+    trivy_scanners: list[str] | None = None,
 ) -> None:
     if use_docker:
         await asyncio.to_thread(purge_stale_grephunt_containers)
@@ -116,6 +136,7 @@ async def _execute(
     selected = [tools[name] for name in scanners]
     # Default excludes (tests, build, dist, out) are about source trees. In an image they would hide packages.
     excludes = collect_excludes(target, None, use_defaults=True) if target_kind == "source" else []
+    trivy_modes = [item.strip() for item in (trivy_scanners or []) if item.strip()]
     options = ScanOptions(
         configs=configs,
         excludes=excludes,
@@ -123,6 +144,7 @@ async def _execute(
         tenant_id=DEFAULT_TENANT,
         target_kind=target_kind,
         image_format=image_format,
+        trivy_scanners=trivy_modes or None,
     )
     try:
         result = await run_scan(target, _scan_dir(scan_id), selected, options, on_event=sink, scan_id=scan_id)

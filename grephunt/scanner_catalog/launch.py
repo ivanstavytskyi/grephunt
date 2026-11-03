@@ -260,6 +260,11 @@ class ScannerTool:
             # Tools that print the report exit non-zero when they find something. The report still counts.
             (raw_path or sarif_path).write_text(outcome.stdout, encoding="utf-8")
 
+        if not sarif_path.exists() and self.descriptor.produced_output:
+            produced = out_dir / self.descriptor.produced_output
+            if produced.is_file():
+                produced.replace(sarif_path)
+
         convert = getattr(self.hook, "convert_output", None)
         if convert is not None and raw_path is not None and raw_path.exists():
             try:

@@ -63,6 +63,8 @@ export type TaskSummary = {
   error: string | null;
 };
 
+export type ScannerGroup = "code" | "secret" | "dependency" | "iac";
+
 export type ToolInfo = {
   name: string;
   module: string;
@@ -73,6 +75,10 @@ export type ToolInfo = {
   scans_images: boolean;
   default_enabled: boolean;
   cloud: boolean;
+  finding_category: string | null;
+  group: ScannerGroup;
+  languages: string;
+  purpose: string;
 };
 
 export type ScanEvent = {
