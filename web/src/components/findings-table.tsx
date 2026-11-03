@@ -4,6 +4,7 @@ import type { Finding, Severity } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { filterFindings, type FindingsFilterState } from "@/lib/findings-filter";
 import { locationLabel } from "@/lib/utils";
+import { ExploitabilityBadge } from "@/pages/scan-detail";
 
 const ROW_HEIGHT = 52;
 const COLUMNS_EDIT = "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_7rem]";
@@ -132,8 +133,9 @@ export const FindingsTable = memo(function FindingsTable({
                 />
               </div>
               )}
-              <div className="px-3 py-2.5 align-top">
+              <div className="flex flex-col items-start gap-1 px-3 py-2.5 align-top">
                 <Badge tone={finding.severity}>{finding.severity}</Badge>
+                {finding.exploitability && <ExploitabilityBadge exploitability={finding.exploitability} compact />}
               </div>
               <div className="px-3 py-2.5 text-sm">{finding.category}</div>
               <div className="px-3 py-2.5 font-mono text-xs leading-5 break-all">{where}</div>

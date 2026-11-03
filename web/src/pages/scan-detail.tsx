@@ -556,15 +556,47 @@ function FindingMapContext({ finding }: { finding: Finding }) {
   );
 }
 
+const EXPLOIT_TONE: Record<string, string> = {
+  "very likely": "bg-rose-500/20 text-rose-200 ring-rose-500/40",
+  likely: "bg-orange-500/20 text-orange-200 ring-orange-500/40",
+  possible: "bg-amber-400/15 text-amber-100 ring-amber-400/30",
+  unlikely: "bg-zinc-500/15 text-zinc-300 ring-zinc-500/30",
+};
+
+export function ExploitabilityBadge({ exploitability, compact = false }: { exploitability: { score: number; label: string }; compact?: boolean }) {
+  const tone = EXPLOIT_TONE[exploitability.label] ?? EXPLOIT_TONE.unlikely;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-inset ${tone}`}
+      title={`Exploitability ${exploitability.score}% — ${exploitability.label}. Estimated from reachability, data flow, and confirmations.`}
+    >
+      {exploitability.score}%{compact ? "" : <span className="font-sans opacity-80">{exploitability.label}</span>}
+    </span>
+  );
+}
+
 function FindingDetail({ scanId, finding }: { scanId: string; finding: Finding }) {
   const cwe = finding.cwe ?? [];
   const cve = finding.cve ?? [];
   return (
     <div className="space-y-3">
-      <Badge tone={finding.severity}>{finding.severity}</Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={finding.severity}>{finding.severity}</Badge>
+        {finding.exploitability && <ExploitabilityBadge exploitability={finding.exploitability} />}
+      </div>
       <h2 className="text-sm font-medium leading-5">{finding.title}</h2>
       {finding.location && (
         <p className="font-mono text-xs text-ink-muted">{locationLabel(finding.location)}</p>
+      )}
+      {finding.exploitability && finding.exploitability.factors.length > 0 && (
+        <ul className="space-y-0.5 text-[11px] leading-4 text-ink-muted">
+          {finding.exploitability.factors.map((factor, index) => (
+            <li key={index} className="flex gap-1.5">
+              <span className="text-ink-muted/60">·</span>
+              <span>{factor}</span>
+            </li>
+          ))}
+        </ul>
       )}
       <FindingMapContext finding={finding} />
       <FindingConfirmations finding={finding} />

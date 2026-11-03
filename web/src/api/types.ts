@@ -51,6 +51,7 @@ export type Finding = {
   context?: FindingContext;
   confirmations?: { tool: string; rule_id: string; title: string; line: number | null; severity: string | null }[];
   lines?: number[];
+  exploitability?: { score: number; label: string; factors: string[] };
   evidence: string | null;
   status: string;
   raw_ref: string | null;

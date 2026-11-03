@@ -315,6 +315,45 @@ def explain_finding(provider: str, api_key: str, model: str, finding: dict) -> s
     return _call(provider, api_key, model, text)
 
 
+_POC_PROMPT = '''You are a security engineer validating one finding from a scan of the user's OWN application.
+This is the code the user scanned and controls. The goal is to confirm whether the finding is really
+exploitable in this application and to help the owner fix it, the way a proof-of-concept in a
+penetration-test report for one's own system does.
+
+Scope rules (follow strictly):
+- Everything you write targets ONLY this application, in a local or test environment the owner runs.
+- Do NOT provide steps, tooling, or infrastructure for attacking any system the reader does not own,
+  for scanning or finding other victims, or for evading detection, persistence, or covering tracks.
+- No generic malware, botnet, or mass-exploitation guidance. Stay on this one finding in this code.
+
+The UI renders your answer as markdown. Use these level-2 sections, in order:
+## Is it reachable
+Trace, from the finding and any provided context (route, request parameters, data flow, snippet),
+how untrusted input could reach this line. If the map shows no route reaches it, say so and lower
+your confidence. If you cannot tell from the given context, say what is missing.
+## How to confirm it
+Give the minimal way the owner can verify the finding against their own running instance: the
+endpoint or entry point involved, and ONE representative input shaped to this finding (for example a
+value in the vulnerable parameter), plus the observable result that distinguishes a real issue from a
+false positive. Keep it to what proves the condition — not a weaponized or data-stealing payload.
+## Impact if real
+What an attacker who controls this input could do, in one short paragraph.
+## Fix
+The concrete change to this code (corrected snippet or precise instruction).
+## Confidence
+State your own confidence that this is genuinely exploitable in this app as: high, medium, or low,
+with one sentence of reasoning. If context is thin, prefer medium or low.
+
+Finding (secrets already masked):
+'''
+
+
+def poc_finding(provider: str, api_key: str, model: str, finding: dict) -> str:
+    """A validation / proof-of-concept for one finding in the user's own scanned application."""
+    text = _POC_PROMPT + json.dumps(_brief_finding(finding), ensure_ascii=False, indent=2)
+    return _call(provider, api_key, model, text)
+
+
 _SCAN_REPORT_PROMPT = """You are reviewing a full security scan of an application or infrastructure target.
 The JSON lists summary counts and individual findings (secrets in snippets are already masked).
 
