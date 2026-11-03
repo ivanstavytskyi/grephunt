@@ -8,6 +8,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from grephunt.finding_model.record import Category, Module
 
 
+class ParameterSpec(BaseModel):
+    name: str
+    type: Literal["multi", "string_list", "string"]
+    label: str = ""
+    description: str = ""
+    choices: list[str] = Field(default_factory=list)
+    default: list[str] | str | None = None
+    widget: str | None = None
+
+
 class CacheVolume(BaseModel):
     name: str
     path: str
@@ -51,6 +61,8 @@ class ToolDescriptor(BaseModel):
     memory: str = "1g"
     pids_limit: int = 512
     output_filename: str
+    produced_output: str | None = None
+    """File name under the scan output directory when the tool does not write output_filename directly."""
     raw_output_filename: str | None = None
     """The file the tool writes when it cannot write SARIF itself. The hook converts it to output_filename."""
     rules_version: str | None = None
@@ -94,6 +106,8 @@ class ToolDescriptor(BaseModel):
     environment: dict[str, str] = Field(default_factory=dict)
     cap_drop: list[str] = Field(default_factory=lambda: ["ALL"])
     no_new_privileges: bool = True
+    parameters: list[ParameterSpec] = Field(default_factory=list)
+    """Per-run options the console collects and validates before launch."""
 
     @field_validator("image")
     @classmethod

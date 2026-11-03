@@ -51,6 +51,9 @@ export type ScanSummary = {
   excluded: number;
   finding_count: number;
   error: string | null;
+  run_params?: Record<string, Record<string, unknown>>;
+  source_repo_url?: string | null;
+  source_ref?: string | null;
   tasks?: TaskSummary[];
 };
 
@@ -63,6 +66,18 @@ export type TaskSummary = {
   error: string | null;
 };
 
+export type ScannerGroup = "code" | "secret" | "dependency" | "iac";
+
+export type ToolParameterSpec = {
+  name: string;
+  type: "multi" | "string_list" | "string";
+  label: string;
+  description: string;
+  choices: string[];
+  default: string | string[] | null;
+  widget: string | null;
+};
+
 export type ToolInfo = {
   name: string;
   module: string;
@@ -73,6 +88,11 @@ export type ToolInfo = {
   scans_images: boolean;
   default_enabled: boolean;
   cloud: boolean;
+  finding_category: string | null;
+  group: ScannerGroup;
+  languages: string;
+  purpose: string;
+  parameters: ToolParameterSpec[];
 };
 
 export type ScanEvent = {

@@ -21,3 +21,11 @@ cache_volumes: []
 cap_drop:
   - ALL
 no_new_privileges: true
+parameters:
+  - name: configs
+    type: string_list
+    label: Rulesets
+    description: Semgrep registry ids (p/…), rule pack URLs, or local paths
+    widget: semgrep_rules
+    default:
+      - p/default

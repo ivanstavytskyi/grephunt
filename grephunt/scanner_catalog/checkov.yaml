@@ -1,0 +1,31 @@
+name: checkov
+module: sast
+category: misconfig
+binary: checkov
+image: bridgecrew/checkov:3.2.366
+version: "3.2.366"
+timeout_sec: 1800
+network: false
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 256
+args:
+  - -d
+  - "{src}"
+  - -o
+  - sarif
+  - --output-file-path
+  - "{out_dir}"
+  - --quiet
+  - --compact
+output_filename: checkov.sarif
+produced_output: results_sarif.sarif
+ok_exit_codes: [0, 1]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cap_drop:
+  - ALL
+no_new_privileges: true

@@ -1,0 +1,47 @@
+name: kubescape
+module: sast
+category: misconfig
+binary: kubescape
+# The Quay image is a server. The CLI is downloaded once from GitHub releases.
+image: python:3.12.12-slim
+version: "3.0.25"
+container_binary: /opt/kubescape/3.0.25/kubescape
+timeout_sec: 1800
+network: true
+prepare_network: true
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+applies_to: ["*.yaml", "*.yml"]
+args:
+  - scan
+  - "{src}"
+  - --format
+  - sarif
+  - --output
+  - "{output}"
+  - --keep-local
+output_filename: kubescape.sarif
+ok_exit_codes: [0, 1]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cache_volumes:
+  - name: grephunt-kubescape
+    path: /opt/kubescape
+    read_only: true
+prepare:
+  binary: python
+  cache: grephunt-kubescape
+  docker_only: true
+  network: true
+  args:
+    - "{catalog}/config/kubescape_install.py"
+    - /opt/kubescape/3.0.25
+    - "3.0.25"
+    - 69d63428017e9bfa0026bae5d874acbbaa9f2c6cc5e3fac78e2cb60fab63d33f
+cap_drop:
+  - ALL
+no_new_privileges: true

@@ -2,13 +2,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Finding, ScanEvent, Severity, TaskSummary } from "@/api/types";
 import { ExplainAi } from "@/components/explain-ai";
+import { ScanReportAi } from "@/components/scan-report-ai";
 import { FindingsTable } from "@/components/findings-table";
 import { SelectMenu } from "@/components/select-menu";
 import { PanelBoundary } from "@/components/panel-boundary";
 import { ScanMap } from "@/components/scan-map";
 import { Snippet } from "@/components/snippet";
 import { Badge } from "@/components/ui/badge";
-import { fetchFindings, fetchLog, fetchScan, watchScan, type LiveChannel } from "@/lib/api";
+import { ScanRunParams } from "@/components/scan-run-params";
+import { fetchFindings, fetchLog, fetchScan, fetchTools, watchScan, type LiveChannel } from "@/lib/api";
 import { elapsedSeconds, formatDuration, locationLabel } from "@/lib/utils";
 
 const SEVERITIES: Array<Severity | "all"> = ["all", "critical", "high", "medium", "low", "info"];
@@ -30,6 +32,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
     queryFn: () => fetchScan(scanId),
     refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
   });
+  const toolCatalog = useQuery({ queryKey: ["tools"], queryFn: fetchTools });
   const status = scan.data?.status;
   const findings = useQuery({
     queryKey: ["findings", scanId],
@@ -154,6 +157,8 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
         <ScanLiveTasks tasks={scan.data.tasks} running={status === "running"} />
       )}
 
+      <ScanRunParams runParams={scan.data?.run_params} tools={toolCatalog.data ?? []} />
+
       <section className="mt-6">
         {status === "running" && (
           <p className="mb-2 text-xs leading-5 text-ink-muted">
@@ -257,6 +262,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               .map((name) => ({ value: name.toLowerCase(), label: name })),
           ]}
         />
+        <ScanReportAi scan={scan.data} findings={rows} />
       </div>
 
       <div className="mt-3 grid items-start gap-4 xl:grid-cols-[1fr_320px]">

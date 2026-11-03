@@ -15,7 +15,9 @@ from grephunt.scan_pipeline.pipeline import run_scan
 from grephunt.report_output.json_export import write_findings_json
 from grephunt.database.tables import EventRow, FindingRow, ScanRow, TaskRow, make_session_factory
 from grephunt.finding_model.record import ScanResult
-from grephunt.scanner_catalog.registry import load_tools
+from grephunt.scanner_catalog.parameter_schema import validate_scan_params
+from grephunt.web_console.scan_source_context import infer_github_from_label
+from grephunt.scanner_catalog.registry import load_tools, load_ui_meta
 from grephunt.execution.docker import purge_stale_grephunt_containers
 from grephunt.web_console.event_sink import EventSink
 
@@ -36,20 +38,30 @@ def reset_session_factory(factory=None) -> None:
 
 
 def list_tools() -> list[dict]:
-    return [
-        {
-            "name": tool.name,
-            "module": tool.descriptor.module.value,
-            "image": tool.descriptor.image,
-            "version": tool.descriptor.version,
-            "network": tool.descriptor.network,
-            "prepare_network": tool.descriptor.prepare_network,
-            "scans_images": bool(getattr(tool.hook, "supports_image", lambda: False)()),
-            "default_enabled": tool.descriptor.default_enabled,
-            "cloud": tool.descriptor.cloud,
-        }
-        for tool in load_tools().values()
-    ]
+    ui = load_ui_meta()
+    rows: list[dict] = []
+    for tool in load_tools().values():
+        meta = ui.get(tool.name, {})
+        category = tool.descriptor.category.value if tool.descriptor.category else None
+        rows.append(
+            {
+                "name": tool.name,
+                "module": tool.descriptor.module.value,
+                "image": tool.descriptor.image,
+                "version": tool.descriptor.version,
+                "network": tool.descriptor.network,
+                "prepare_network": tool.descriptor.prepare_network,
+                "scans_images": bool(getattr(tool.hook, "supports_image", lambda: False)()),
+                "default_enabled": tool.descriptor.default_enabled,
+                "cloud": tool.descriptor.cloud,
+                "finding_category": category,
+                "group": meta.get("group") or ("secret" if category == "secret" else "code"),
+                "languages": meta.get("languages") or "",
+                "purpose": meta.get("purpose") or "",
+                "parameters": [item.model_dump(mode="json") for item in tool.descriptor.parameters],
+            }
+        )
+    return rows
 
 
 def _scan_dir(scan_id: str) -> Path:
@@ -62,23 +74,44 @@ def create_scan(
     target: Path,
     label: str,
     scanners: list[str],
-    configs: list[str],
     use_docker: bool,
+    params: dict[str, dict] | None = None,
     target_kind: str = "source",
     image_format: str = "docker",
+    source_repo_url: str | None = None,
+    source_ref: str | None = None,
 ) -> str:
     known = load_tools()
     unknown = [name for name in scanners if name not in known]
     if unknown:
         raise ValueError(f"unknown scanner: {', '.join(unknown)}")
+    descriptors = {name: tool.descriptor for name, tool in known.items()}
+    validated = validate_scan_params(scanners, descriptors, params)
     scan_id = uuid.uuid4().hex[:12]
+    params_json = json.dumps(validated, ensure_ascii=False)
     row = ScanRow(
         id=scan_id,
         tenant_id=DEFAULT_TENANT,
         target_label=label,
         target_path=str(target),
         status="running",
+        run_params=params_json,
+        source_repo_url=source_repo_url,
+        source_ref=source_ref,
     )
+    scan_root = _scan_dir(scan_id)
+    meta = {
+        "id": scan_id,
+        "target_label": label,
+        "target_path": str(target),
+        "target_kind": target_kind,
+        "scanners": scanners,
+        "params": validated,
+        "status": "running",
+        "source_repo_url": source_repo_url,
+        "source_ref": source_ref,
+    }
+    (scan_root / "scan.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     with session_factory()() as session:
         session.add(row)
         for name in scanners:
@@ -92,9 +125,16 @@ def create_scan(
                 )
             )
         session.commit()
-    options_configs = configs or ["p/default"]
     task = asyncio.get_running_loop().create_task(
-        _execute(scan_id, target, scanners, options_configs, use_docker, target_kind, image_format)
+        _execute(
+            scan_id,
+            target,
+            scanners,
+            validated,
+            use_docker,
+            target_kind,
+            image_format,
+        )
     )
     _TASKS[scan_id] = task
     return scan_id
@@ -104,7 +144,7 @@ async def _execute(
     scan_id: str,
     target: Path,
     scanners: list[str],
-    configs: list[str],
+    params: dict[str, dict],
     use_docker: bool,
     target_kind: str = "source",
     image_format: str = "docker",
@@ -117,7 +157,7 @@ async def _execute(
     # Default excludes (tests, build, dist, out) are about source trees. In an image they would hide packages.
     excludes = collect_excludes(target, None, use_defaults=True) if target_kind == "source" else []
     options = ScanOptions(
-        configs=configs,
+        params=params,
         excludes=excludes,
         use_docker=use_docker,
         tenant_id=DEFAULT_TENANT,
@@ -128,7 +168,7 @@ async def _execute(
         result = await run_scan(target, _scan_dir(scan_id), selected, options, on_event=sink, scan_id=scan_id)
         await asyncio.to_thread(sink.close)
         partial = any(run.status.value != "success" for run in result.runs)
-        await asyncio.to_thread(write_findings_json, result, _scan_dir(scan_id))
+        await asyncio.to_thread(write_findings_json, result, _scan_dir(scan_id), params=params, scanners=scanners)
         await asyncio.to_thread(_save_result, scan_id, result, partial)
     except Exception as exc:
         sink(
@@ -282,6 +322,24 @@ def _duration_sec(row: ScanRow) -> float | None:
     return round(max(0.0, (end - _aware(row.created_at)).total_seconds()), 1)
 
 
+def _load_run_params(row: ScanRow) -> dict:
+    if row.run_params:
+        try:
+            payload = json.loads(row.run_params)
+            return payload if isinstance(payload, dict) else {}
+        except json.JSONDecodeError:
+            pass
+    path = DATA_DIR / "scans" / row.id / "scan.json"
+    if path.is_file():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            params = payload.get("params")
+            return params if isinstance(params, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
 def _scan_dict(row: ScanRow) -> dict:
     return {
         "id": row.id,
@@ -297,4 +355,23 @@ def _scan_dict(row: ScanRow) -> dict:
         "excluded": row.excluded,
         "finding_count": row.finding_count,
         "error": row.error,
+        "run_params": _load_run_params(row),
+        "source_repo_url": (
+            row.source_repo_url
+            or _source_from_meta(row.id, "source_repo_url")
+            or infer_github_from_label(row.target_label)
+        ),
+        "source_ref": row.source_ref or _source_from_meta(row.id, "source_ref") or "main",
     }
+
+
+def _source_from_meta(scan_id: str, key: str) -> str | None:
+    path = DATA_DIR / "scans" / scan_id / "scan.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = payload.get(key)
+        return value if isinstance(value, str) and value.strip() else None
+    except (json.JSONDecodeError, OSError):
+        return None

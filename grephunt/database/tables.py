@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, event
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from grephunt.config import DATA_DIR, database_url
@@ -32,6 +32,10 @@ class ScanRow(Base):
     finding_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     partial: Mapped[int] = mapped_column(Integer, default=0)
+    run_params: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """JSON: per-tool validated parameters used for this scan."""
+    source_repo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class TaskRow(Base):
@@ -91,7 +95,22 @@ def make_engine(url: str | None = None):
     return engine
 
 
+def _migrate_schema(engine) -> None:
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(scans)")).fetchall()
+        names = {row[1] for row in rows}
+        if "run_params" not in names:
+            conn.execute(text("ALTER TABLE scans ADD COLUMN run_params TEXT"))
+        if "source_repo_url" not in names:
+            conn.execute(text("ALTER TABLE scans ADD COLUMN source_repo_url TEXT"))
+        if "source_ref" not in names:
+            conn.execute(text("ALTER TABLE scans ADD COLUMN source_ref TEXT"))
+
+
 def make_session_factory(engine=None):
     bound = engine or make_engine()
     Base.metadata.create_all(bound)
+    _migrate_schema(bound)
     return sessionmaker(bound, expire_on_commit=False)

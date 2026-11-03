@@ -1,0 +1,1989 @@
+{
+	"$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+	"version": "2.1.0",
+	"runs": [
+		{
+			"tool": {
+				"driver": {
+					"name": "KICS",
+					"version": "v2.1.15",
+					"fullName": "Keeping Infrastructure as Code Secure",
+					"informationUri": "https://www.kics.io/",
+					"rules": [
+						{
+							"id": "dd29336b-fe57-445b-a26e-e6aa867ae609",
+							"name": "Container Is Privileged",
+							"shortDescription": {
+								"text": "Container Is Privileged"
+							},
+							"fullDescription": {
+								"text": "Privileged containers lack essential security restrictions and should be avoided by removing the 'privileged' flag or by changing its value to false"
+							},
+							"defaultConfiguration": {
+								"level": "error"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/workloads/pods/#privileged-mode-for-containers",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "269",
+										"guid": "6c8711d1-2d53-4b56-8db5-54b4cbd9a976",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "7.7"
+							}
+						},
+						{
+							"id": "67fd0c4a-68cf-46d7-8c41-bc9fba7e40ae",
+							"name": "Last User Is 'root'",
+							"shortDescription": {
+								"text": "Last User Is 'root'"
+							},
+							"fullDescription": {
+								"text": "Leaving the last user as root can cause security risks. Change to another user after running the commands that need privileges"
+							},
+							"defaultConfiguration": {
+								"level": "error"
+							},
+							"helpUri": "https://docs.docker.com/engine/reference/builder/#user",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT004",
+										"index": 13,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "250",
+										"guid": "90249c74-7823-45e4-ba79-1bcc89a2b5b6",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "7.7"
+							}
+						},
+						{
+							"id": "5572cc5e-1e4c-4113-92a6-7a8a3bd25e6d",
+							"name": "Privilege Escalation Allowed",
+							"shortDescription": {
+								"text": "Privilege Escalation Allowed"
+							},
+							"fullDescription": {
+								"text": "Containers should not run with allowPrivilegeEscalation in order to prevent them from gaining more privileges than their parent process"
+							},
+							"defaultConfiguration": {
+								"level": "error"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "269",
+										"guid": "da97f0e0-d100-411d-b15e-83fc3ee84aff",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "7.7"
+							}
+						},
+						{
+							"id": "cf34805e-3872-4c08-bf92-6ff7bb0cfadb",
+							"name": "Container Running As Root",
+							"shortDescription": {
+								"text": "Container Running As Root"
+							},
+							"fullDescription": {
+								"text": "Containers should only run as non-root user. This limits the exploitability of security misconfigurations and restricts an attacker's possibilities in case of compromise"
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT004",
+										"index": 13,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "1188",
+										"guid": "9777fdb5-19d6-45bd-b615-e3e5fcfe6fe8",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "5.8"
+							}
+						},
+						{
+							"id": "02323c00-cdc3-4fdc-a310-4f2b3e7a1660",
+							"name": "Container Running With Low UID",
+							"shortDescription": {
+								"text": "Container Running With Low UID"
+							},
+							"fullDescription": {
+								"text": "Check if containers are running with low UID, which might cause conflicts with the host's user table."
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT004",
+										"index": 13,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "1188",
+										"guid": "7967ba17-22e4-405f-9dc4-03f3f7909068",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "4.9"
+							}
+						},
+						{
+							"id": "b14d1bc4-a208-45db-92f0-e21f8e2588e9",
+							"name": "Memory Limits Not Defined",
+							"shortDescription": {
+								"text": "Memory Limits Not Defined"
+							},
+							"fullDescription": {
+								"text": "Memory limits should be defined for each container. This prevents potential resource exhaustion by ensuring that containers consume not more than the designated amount of memory"
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT011",
+										"index": 9,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "400",
+										"guid": "29bf2c84-f1b6-4141-a938-55c7d4ab234e",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "5.5"
+							}
+						},
+						{
+							"id": "229588ef-8fde-40c8-8756-f4f2b5825ded",
+							"name": "Memory Requests Not Defined",
+							"shortDescription": {
+								"text": "Memory Requests Not Defined"
+							},
+							"fullDescription": {
+								"text": "Memory requests should be defined for each container. This allows the kubelet to reserve the requested amount of system resources and prevents over-provisioning on individual nodes"
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT011",
+										"index": 9,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "400",
+										"guid": "b784911d-b4da-4d37-9b87-a69768995cc6",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "5.5"
+							}
+						},
+						{
+							"id": "dbbc6705-d541-43b0-b166-dd4be8208b54",
+							"name": "NET_RAW Capabilities Not Being Dropped",
+							"shortDescription": {
+								"text": "NET_RAW Capabilities Not Being Dropped"
+							},
+							"fullDescription": {
+								"text": "Containers should drop 'ALL' or at least 'NET_RAW' capabilities"
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "269",
+										"guid": "95122016-b90f-4cf8-8401-f84414b97ef3",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "6.2"
+							}
+						},
+						{
+							"id": "a659f3b5-9bf0-438a-bd9a-7d3a6427f1e3",
+							"name": "Readiness Probe Is Not Configured",
+							"shortDescription": {
+								"text": "Readiness Probe Is Not Configured"
+							},
+							"fullDescription": {
+								"text": "Check if Readiness Probe is not configured."
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-readiness-probes",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT002",
+										"index": 4,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "754",
+										"guid": "e4fb665c-5e41-44b8-91a7-297799fbdf7f",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "5.1"
+							}
+						},
+						{
+							"id": "f377b83e-bd07-4f48-a591-60c82b14a78b",
+							"name": "Seccomp Profile Is Not Configured",
+							"shortDescription": {
+								"text": "Seccomp Profile Is Not Configured"
+							},
+							"fullDescription": {
+								"text": "Containers should be configured with a secure Seccomp profile to restrict potentially dangerous syscalls"
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tutorials/security/seccomp/#create-pod-that-uses-the-container-runtime-default-seccomp-profile",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "665",
+										"guid": "0f15058c-b864-4fd1-955c-b5daede842d5",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "6.8"
+							}
+						},
+						{
+							"id": "48471392-d4d0-47c0-b135-cdec95eb3eef",
+							"name": "Service Account Token Automount Not Disabled",
+							"shortDescription": {
+								"text": "Service Account Token Automount Not Disabled"
+							},
+							"fullDescription": {
+								"text": "Service Account Tokens are automatically mounted even if not necessary"
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#use-the-default-service-account-to-access-the-api-server",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT008",
+										"index": 2,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "665",
+										"guid": "22072640-458c-49ff-ab29-00c4a69651f4",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "6.8"
+							}
+						},
+						{
+							"id": "611ab018-c4aa-4ba2-b0f6-a448337509a6",
+							"name": "Using Unrecommended Namespace",
+							"shortDescription": {
+								"text": "Using Unrecommended Namespace"
+							},
+							"fullDescription": {
+								"text": "Namespaces like 'default', 'kube-system' or 'kube-public' should not be used"
+							},
+							"defaultConfiguration": {
+								"level": "warning"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "665",
+										"guid": "1e2a9b82-4036-4959-beb0-1a386621842d",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "5.5"
+							}
+						},
+						{
+							"id": "4ac0e2b7-d2d2-4af7-8799-e8de6721ccda",
+							"name": "CPU Limits Not Set",
+							"shortDescription": {
+								"text": "CPU Limits Not Set"
+							},
+							"fullDescription": {
+								"text": "CPU limits should be set because if the system has CPU time free, a container is guaranteed to be allocated as much CPU as it requests"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT011",
+										"index": 9,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "400",
+										"guid": "6b1dd3f5-c334-4a60-907d-a6e864b4dc61",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "2.9"
+							}
+						},
+						{
+							"id": "ca469dd4-c736-448f-8ac1-30a642705e0a",
+							"name": "CPU Requests Not Set",
+							"shortDescription": {
+								"text": "CPU Requests Not Set"
+							},
+							"fullDescription": {
+								"text": "CPU requests should be set to ensure the sum of the resource requests of the scheduled Containers is less than the capacity of the node"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT011",
+										"index": 9,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "400",
+										"guid": "a7e3fe6b-ae5e-4228-a5b9-b8eacac3c02b",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "2.9"
+							}
+						},
+						{
+							"id": "b03a748a-542d-44f4-bb86-9199ab4fd2d5",
+							"name": "Healthcheck Instruction Missing",
+							"shortDescription": {
+								"text": "Healthcheck Instruction Missing"
+							},
+							"fullDescription": {
+								"text": "Ensure that HEALTHCHECK is being used. The HEALTHCHECK instruction tells Docker how to test a container to check that it is still working"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://docs.docker.com/engine/reference/builder/#healthcheck",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "710",
+										"guid": "40f8cc43-56f5-4852-aeff-55632c50257e",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "3.6"
+							}
+						},
+						{
+							"id": "7c81d34c-8e5a-402b-9798-9f442630e678",
+							"name": "Image Without Digest",
+							"shortDescription": {
+								"text": "Image Without Digest"
+							},
+							"fullDescription": {
+								"text": "Images should be specified together with their digests to ensure integrity"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/containers/images/#updating-images",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "665",
+										"guid": "1835d273-9bf9-4ab1-9fb4-9d071aec5474",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "4.1"
+							}
+						},
+						{
+							"id": "583053b7-e632-46f0-b989-f81ff8045385",
+							"name": "Invalid Image Tag",
+							"shortDescription": {
+								"text": "Invalid Image Tag"
+							},
+							"fullDescription": {
+								"text": "Image tag must be defined and not be empty or equal to latest."
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/containers/images/#updating-images",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT013",
+										"index": 6,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "665",
+										"guid": "7b7eb3a3-5089-4001-9ff1-05831e69c149",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "3.6"
+							}
+						},
+						{
+							"id": "8b36775e-183d-4d46-b0f7-96a6f34a723f",
+							"name": "Missing AppArmor Profile",
+							"shortDescription": {
+								"text": "Missing AppArmor Profile"
+							},
+							"fullDescription": {
+								"text": "Containers should be configured with an AppArmor profile to enforce fine-grained access control over low-level system resources"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/tutorials/clusters/apparmor/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT001",
+										"index": 1,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "284",
+										"guid": "860224d8-21cf-4a50-8f35-80ba9c0c41a9",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "3.3"
+							}
+						},
+						{
+							"id": "268ca686-7fb7-4ae9-b129-955a2a89064e",
+							"name": "No Drop Capabilities for Containers",
+							"shortDescription": {
+								"text": "No Drop Capabilities for Containers"
+							},
+							"fullDescription": {
+								"text": "Sees if Kubernetes Drop Capabilities exists to ensure containers security context"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/workloads/pods/init-containers/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT004",
+										"index": 13,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "754",
+										"guid": "91653ce9-77f1-4a4d-b2e5-c1d7063bdc44",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "3.6"
+							}
+						},
+						{
+							"id": "f2f903fb-b977-461e-98d7-b3e2185c6118",
+							"name": "Pip install Keeping Cached Packages",
+							"shortDescription": {
+								"text": "Pip install Keeping Cached Packages"
+							},
+							"fullDescription": {
+								"text": "When installing packages with pip, the '--no-cache-dir' flag should be set to make Docker images smaller"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT004",
+										"index": 13,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "459",
+										"guid": "f8686eef-5181-478e-a518-9fd44b1d64da",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "0.9"
+							}
+						},
+						{
+							"id": "4a20ebac-1060-4c81-95d1-1f7f620e983b",
+							"name": "Pod or Container Without LimitRange",
+							"shortDescription": {
+								"text": "Pod or Container Without LimitRange"
+							},
+							"fullDescription": {
+								"text": "Each namespace should have a LimitRange policy associated to ensure that resource allocations of Pods, Containers and PersistentVolumeClaims do not exceed the defined boundaries"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/policy/limit-range/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "400",
+										"guid": "a13336be-7df8-4204-86ea-a47581654bad",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "2.8"
+							}
+						},
+						{
+							"id": "48a5beba-e4c0-4584-a2aa-e6894e4cf424",
+							"name": "Pod or Container Without ResourceQuota",
+							"shortDescription": {
+								"text": "Pod or Container Without ResourceQuota"
+							},
+							"fullDescription": {
+								"text": "Each namespace should have a ResourceQuota policy associated to limit the total amount of resources Pods, Containers and PersistentVolumeClaims can consume"
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/policy/resource-quotas/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT007",
+										"index": 5,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "400",
+										"guid": "8df71160-4cf9-4ba4-a3a5-c91281f23560",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "2.8"
+							}
+						},
+						{
+							"id": "a9c2f49d-0671-4fc9-9ece-f4e261e128d0",
+							"name": "Root Container Not Mounted Read-only",
+							"shortDescription": {
+								"text": "Root Container Not Mounted Read-only"
+							},
+							"fullDescription": {
+								"text": "Check if the root container filesystem is not being mounted as read-only."
+							},
+							"defaultConfiguration": {
+								"level": "note"
+							},
+							"helpUri": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT005",
+										"index": 14,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "668",
+										"guid": "4de04b04-589c-4e89-a752-fb66f3f986d3",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "3.6"
+							}
+						},
+						{
+							"id": "ade74944-a674-4e00-859e-c6eab5bde441",
+							"name": "Liveness Probe Is Not Defined",
+							"shortDescription": {
+								"text": "Liveness Probe Is Not Defined"
+							},
+							"fullDescription": {
+								"text": "In case of an unresponsive container, a Liveness Probe can help your application become more available since it restarts the container. However, it can lead to cascading failures. Define one if you really need it"
+							},
+							"defaultConfiguration": {
+								"level": "none"
+							},
+							"helpUri": "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#when-should-you-use-a-liveness-probe",
+							"relationships": [
+								{
+									"target": {
+										"id": "CAT002",
+										"index": 4,
+										"toolComponent": {
+											"name": "Categories",
+											"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f"
+										}
+									}
+								},
+								{
+									"target": {
+										"id": "754",
+										"guid": "e3250fb8-2988-47b1-b965-3e808f938101",
+										"toolComponent": {
+											"name": "CWE",
+											"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3"
+										}
+									}
+								}
+							],
+							"properties": {
+								"riskScore": "0.0"
+							}
+						}
+					]
+				}
+			},
+			"results": [
+				{
+					"ruleId": "dd29336b-fe57-445b-a26e-e6aa867ae609",
+					"ruleIndex": 0,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.securityContext.privileged is true",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "7.7"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 19
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "67fd0c4a-68cf-46d7-8c41-bc9fba7e40ae",
+					"ruleIndex": 1,
+					"kind": "fail",
+					"message": {
+						"text": "Last User is root",
+						"properties": {
+							"platform": "Dockerfile",
+							"riskScore": "7.7"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/Dockerfile"
+								},
+								"region": {
+									"startLine": 4
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "5572cc5e-1e4c-4113-92a6-7a8a3bd25e6d",
+					"ruleIndex": 2,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.securityContext.allowPrivilegeEscalation is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "7.7"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 18
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "cf34805e-3872-4c08-bf92-6ff7bb0cfadb",
+					"ruleIndex": 3,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.securityContext.runAsUser is 0 and 'runAsNonRoot' is false",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "5.8"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "02323c00-cdc3-4fdc-a310-4f2b3e7a1660",
+					"ruleIndex": 4,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.securityContext.runAsUser is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "4.9"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "b14d1bc4-a208-45db-92f0-e21f8e2588e9",
+					"ruleIndex": 5,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.resources.limits.memory is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "5.5"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "229588ef-8fde-40c8-8756-f4f2b5825ded",
+					"ruleIndex": 6,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.resources.requests.memory is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "5.5"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "dbbc6705-d541-43b0-b166-dd4be8208b54",
+					"ruleIndex": 7,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.securityContext.capabilities.drop is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "6.2"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 18
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "a659f3b5-9bf0-438a-bd9a-7d3a6427f1e3",
+					"ruleIndex": 8,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.readinessProbe is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "5.1"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "f377b83e-bd07-4f48-a591-60c82b14a78b",
+					"ruleIndex": 9,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.securityContext.seccompProfile.type is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "6.8"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 18
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "48471392-d4d0-47c0-b135-cdec95eb3eef",
+					"ruleIndex": 10,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.automountServiceAccountToken is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "6.8"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 14
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "611ab018-c4aa-4ba2-b0f6-a448337509a6",
+					"ruleIndex": 11,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.namespace is undefined or null",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "5.5"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 4
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "4ac0e2b7-d2d2-4af7-8799-e8de6721ccda",
+					"ruleIndex": 12,
+					"kind": "fail",
+					"message": {
+						"text": "spec.template.spec.containers.name=web doesn't have resources defined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "2.9"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "ca469dd4-c736-448f-8ac1-30a642705e0a",
+					"ruleIndex": 13,
+					"kind": "fail",
+					"message": {
+						"text": "spec.template.spec.containers.name=web doesn't have resources defined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "2.9"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "b03a748a-542d-44f4-bb86-9199ab4fd2d5",
+					"ruleIndex": 14,
+					"kind": "fail",
+					"message": {
+						"text": "Dockerfile doesn't contain instruction 'HEALTHCHECK'",
+						"properties": {
+							"platform": "Dockerfile",
+							"riskScore": "3.6"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/Dockerfile"
+								},
+								"region": {
+									"startLine": 1
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "7c81d34c-8e5a-402b-9798-9f442630e678",
+					"ruleIndex": 15,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.image does not include an image digest",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "4.1"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 17
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "583053b7-e632-46f0-b989-f81ff8045385",
+					"ruleIndex": 16,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.image tag is not provided or latest",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "3.6"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 17
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "8b36775e-183d-4d46-b0f7-96a6f34a723f",
+					"ruleIndex": 17,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.metadata.annotations does not specify an AppArmor profile for container {{web}}",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "3.3"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 11
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "268ca686-7fb7-4ae9-b129-955a2a89064e",
+					"ruleIndex": 18,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.containers.name={{web}}.securityContext.capabilities is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "3.6"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 18
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "f2f903fb-b977-461e-98d7-b3e2185c6118",
+					"ruleIndex": 19,
+					"kind": "fail",
+					"message": {
+						"text": "The '--no-cache-dir' flag isn't set when running 'pip/pip3 install'",
+						"properties": {
+							"platform": "Dockerfile",
+							"riskScore": "0.9"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/Dockerfile"
+								},
+								"region": {
+									"startLine": 3
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "4a20ebac-1060-4c81-95d1-1f7f620e983b",
+					"ruleIndex": 20,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}} does not have a 'LimitRange' policy associated",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "2.8"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 4
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "48a5beba-e4c0-4584-a2aa-e6894e4cf424",
+					"ruleIndex": 21,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}} does not have a 'ResourceQuota' policy associated",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "2.8"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 4
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "a9c2f49d-0671-4fc9-9ece-f4e261e128d0",
+					"ruleIndex": 22,
+					"kind": "fail",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.template.spec.containers.name={{web}}.securityContext.readOnlyRootFilesystem is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "3.6"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 18
+								}
+							}
+						}
+					]
+				},
+				{
+					"ruleId": "ade74944-a674-4e00-859e-c6eab5bde441",
+					"ruleIndex": 23,
+					"kind": "informational",
+					"message": {
+						"text": "metadata.name={{demo}}.spec.containers.name={{web}}.livenessProbe is undefined",
+						"properties": {
+							"platform": "Kubernetes",
+							"riskScore": "0.0"
+						}
+					},
+					"locations": [
+						{
+							"physicalLocation": {
+								"artifactLocation": {
+									"uri": "../../src/deployment.yaml"
+								},
+								"region": {
+									"startLine": 16
+								}
+							}
+						}
+					]
+				}
+			],
+			"taxonomies": [
+				{
+					"guid": "58cdcc6f-fe41-4724-bfb3-131a93df4c3f",
+					"name": "Categories",
+					"fullDescription": {
+						"text": "This taxonomy contains the types an issue can assume"
+					},
+					"shortDescription": {
+						"text": "Vulnerabilities categories"
+					},
+					"taxa": [
+						{
+							"name": "Undefined Category",
+							"id": "CAT000",
+							"shortDescription": {
+								"text": "Category is not defined"
+							},
+							"fullDescription": {
+								"text": "Category is not defined"
+							}
+						},
+						{
+							"name": "Access Control",
+							"id": "CAT001",
+							"shortDescription": {
+								"text": "Service permission and identity management"
+							},
+							"fullDescription": {
+								"text": "Service permission and identity management"
+							}
+						},
+						{
+							"name": "Insecure Defaults",
+							"id": "CAT008",
+							"shortDescription": {
+								"text": "Configurations that are insecure by default"
+							},
+							"fullDescription": {
+								"text": "Configurations that are insecure by default"
+							}
+						},
+						{
+							"name": "Networking and Firewall",
+							"id": "CAT009",
+							"shortDescription": {
+								"text": "Network port exposure and firewall configuration"
+							},
+							"fullDescription": {
+								"text": "Network port exposure and firewall configuration"
+							}
+						},
+						{
+							"name": "Availability",
+							"id": "CAT002",
+							"shortDescription": {
+								"text": "Reliability and Scalability"
+							},
+							"fullDescription": {
+								"text": "Reliability and Scalability"
+							}
+						},
+						{
+							"name": "Insecure Configurations",
+							"id": "CAT007",
+							"shortDescription": {
+								"text": "Configurations which expose the application unnecessarily"
+							},
+							"fullDescription": {
+								"text": "Configurations which expose the application unnecessarily"
+							}
+						},
+						{
+							"name": "Supply-Chain",
+							"id": "CAT013",
+							"shortDescription": {
+								"text": "Dependency version management"
+							},
+							"fullDescription": {
+								"text": "Dependency version management"
+							}
+						},
+						{
+							"name": "Backup",
+							"id": "CAT003",
+							"shortDescription": {
+								"text": "Survivability and Recovery"
+							},
+							"fullDescription": {
+								"text": "Survivability and Recovery"
+							}
+						},
+						{
+							"name": "Observability",
+							"id": "CAT010",
+							"shortDescription": {
+								"text": "Logging and Monitoring"
+							},
+							"fullDescription": {
+								"text": "Logging and Monitoring"
+							}
+						},
+						{
+							"name": "Resource Management",
+							"id": "CAT011",
+							"shortDescription": {
+								"text": "Resource and privilege limit configuration"
+							},
+							"fullDescription": {
+								"text": "Resource and privilege limit configuration"
+							}
+						},
+						{
+							"name": "Secret Management",
+							"id": "CAT012",
+							"shortDescription": {
+								"text": "Secret and Key management"
+							},
+							"fullDescription": {
+								"text": "Secret and Key management"
+							}
+						},
+						{
+							"name": "Structure and Semantics",
+							"id": "CAT014",
+							"shortDescription": {
+								"text": "Malformed document structure or inadequate semantics"
+							},
+							"fullDescription": {
+								"text": "Malformed document structure or inadequate semantics"
+							}
+						},
+						{
+							"name": "Bill Of Materials",
+							"id": "CAT015",
+							"shortDescription": {
+								"text": "List of resources provisioned"
+							},
+							"fullDescription": {
+								"text": "List of resources provisioned"
+							}
+						},
+						{
+							"name": "Best Practices",
+							"id": "CAT004",
+							"shortDescription": {
+								"text": "Metadata management"
+							},
+							"fullDescription": {
+								"text": "Metadata management"
+							}
+						},
+						{
+							"name": "Build Process",
+							"id": "CAT005",
+							"shortDescription": {
+								"text": "Insecure configurations when building/deploying"
+							},
+							"fullDescription": {
+								"text": "Insecure configurations when building/deploying"
+							}
+						},
+						{
+							"name": "Encryption",
+							"id": "CAT006",
+							"shortDescription": {
+								"text": "Data Security and Encryption configuration"
+							},
+							"fullDescription": {
+								"text": "Data Security and Encryption configuration"
+							}
+						}
+					]
+				},
+				{
+					"guid": "1489b0c4-d7ce-4d31-af66-6382a01202e3",
+					"name": "CWE",
+					"fullDescription": {
+						"text": "The MITRE Common Weakness Enumeration"
+					},
+					"shortDescription": {
+						"text": "The MITRE Common Weakness Enumeration"
+					},
+					"downloadUri": "https://cwe.mitre.org/data/xml/cwec_v4.13.xml.zip",
+					"informationUri": "https://cwe.mitre.org/data/published/cwe_v4.13.pdf",
+					"isComprehensive": true,
+					"language": "en",
+					"minimumRequiredLocalizedDataSemanticVersion": "4.13",
+					"organization": "MITRE",
+					"releaseDateUtc": "2023-10-26",
+					"taxa": [
+						{
+							"guid": "95122016-b90f-4cf8-8401-f84414b97ef3",
+							"id": "269",
+							"shortDescription": {
+								"text": "The product does not properly assign, modify, track, or check privileges for an actor, creating an unintended sphere of control for that actor."
+							},
+							"fullDescription": {
+								"text": "The product does not properly assign, modify, track, or check privileges for an actor, creating an unintended sphere of control for that actor."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/269.html"
+						},
+						{
+							"guid": "90249c74-7823-45e4-ba79-1bcc89a2b5b6",
+							"id": "250",
+							"shortDescription": {
+								"text": "The product performs an operation at a privilege level that is higher than the minimum level required, which creates new weaknesses or amplifies the consequences of other weaknesses."
+							},
+							"fullDescription": {
+								"text": "New weaknesses can be exposed because running with extra privileges, such as root or Administrator, can disable the normal security checks being performed by the operating system or surrounding environment. Other pre-existing weaknesses can turn into security vulnerabilities if they occur while operating at raised privileges. Privilege management functions can behave in some less-than-obvious ways, and they have different quirks on different platforms. These inconsistencies are particularly pronounced if you are transitioning from one non-root user to another. Signal handlers and spawned processes run at the privilege of the owning process, so if a process is running as root when a signal fires or a sub-process is executed, the signal handler or sub-process will operate with root privileges."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/250.html"
+						},
+						{
+							"guid": "95122016-b90f-4cf8-8401-f84414b97ef3",
+							"id": "269",
+							"shortDescription": {
+								"text": "The product does not properly assign, modify, track, or check privileges for an actor, creating an unintended sphere of control for that actor."
+							},
+							"fullDescription": {
+								"text": "The product does not properly assign, modify, track, or check privileges for an actor, creating an unintended sphere of control for that actor."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/269.html"
+						},
+						{
+							"guid": "7967ba17-22e4-405f-9dc4-03f3f7909068",
+							"id": "1188",
+							"shortDescription": {
+								"text": "The product initializes or sets a resource with a default that is intended to be changed by the administrator, but the default is not secure."
+							},
+							"fullDescription": {
+								"text": "Developers often choose default values that leave the product as open and easy to use as possible out-of-the-box, under the assumption that the administrator can (or should) change the default value. However, this ease-of-use comes at a cost when the default is insecure and the administrator does not change it."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/1188.html"
+						},
+						{
+							"guid": "7967ba17-22e4-405f-9dc4-03f3f7909068",
+							"id": "1188",
+							"shortDescription": {
+								"text": "The product initializes or sets a resource with a default that is intended to be changed by the administrator, but the default is not secure."
+							},
+							"fullDescription": {
+								"text": "Developers often choose default values that leave the product as open and easy to use as possible out-of-the-box, under the assumption that the administrator can (or should) change the default value. However, this ease-of-use comes at a cost when the default is insecure and the administrator does not change it."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/1188.html"
+						},
+						{
+							"guid": "8df71160-4cf9-4ba4-a3a5-c91281f23560",
+							"id": "400",
+							"shortDescription": {
+								"text": "The product does not properly control the allocation and maintenance of a limited resource, thereby enabling an actor to influence the amount of resources consumed, eventually leading to the exhaustion of available resources."
+							},
+							"fullDescription": {
+								"text": "Limited resources include memory, file system storage, database connection pool entries, and CPU. If an attacker can trigger the allocation of these limited resources, but the number or size of the resources is not controlled, then the attacker could cause a denial of service that consumes all available resources. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system. There are at least three distinct scenarios which can commonly lead to resource exhaustion: Lack of throttling for the number of allocated resources Losing all references to a resource before reaching the shutdown stage Not closing/returning a resource after processing Resource exhaustion problems are often result due to an incorrect implementation of the following situations: Error conditions and other exceptional circumstances. Confusion over which part of the program is responsible for releasing the resource."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/400.html"
+						},
+						{
+							"guid": "8df71160-4cf9-4ba4-a3a5-c91281f23560",
+							"id": "400",
+							"shortDescription": {
+								"text": "The product does not properly control the allocation and maintenance of a limited resource, thereby enabling an actor to influence the amount of resources consumed, eventually leading to the exhaustion of available resources."
+							},
+							"fullDescription": {
+								"text": "Limited resources include memory, file system storage, database connection pool entries, and CPU. If an attacker can trigger the allocation of these limited resources, but the number or size of the resources is not controlled, then the attacker could cause a denial of service that consumes all available resources. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system. There are at least three distinct scenarios which can commonly lead to resource exhaustion: Lack of throttling for the number of allocated resources Losing all references to a resource before reaching the shutdown stage Not closing/returning a resource after processing Resource exhaustion problems are often result due to an incorrect implementation of the following situations: Error conditions and other exceptional circumstances. Confusion over which part of the program is responsible for releasing the resource."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/400.html"
+						},
+						{
+							"guid": "95122016-b90f-4cf8-8401-f84414b97ef3",
+							"id": "269",
+							"shortDescription": {
+								"text": "The product does not properly assign, modify, track, or check privileges for an actor, creating an unintended sphere of control for that actor."
+							},
+							"fullDescription": {
+								"text": "The product does not properly assign, modify, track, or check privileges for an actor, creating an unintended sphere of control for that actor."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/269.html"
+						},
+						{
+							"guid": "e3250fb8-2988-47b1-b965-3e808f938101",
+							"id": "754",
+							"shortDescription": {
+								"text": "The product does not check or incorrectly checks for unusual or exceptional conditions that are not expected to occur frequently during day to day operation of the product."
+							},
+							"fullDescription": {
+								"text": "The programmer may assume that certain events or conditions will never occur or do not need to be worried about, such as low memory conditions, lack of access to resources due to restrictive permissions, or misbehaving clients or components. However, attackers may intentionally trigger these unusual conditions, thus violating the programmer's assumptions, possibly introducing instability, incorrect behavior, or a vulnerability. Note that this entry is not exclusively about the use of exceptions and exception handling, which are mechanisms for both checking and handling unusual or unexpected conditions."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/754.html"
+						},
+						{
+							"guid": "7b7eb3a3-5089-4001-9ff1-05831e69c149",
+							"id": "665",
+							"shortDescription": {
+								"text": "The product does not initialize or incorrectly initializes a resource, which might leave the resource in an unexpected state when it is accessed or used."
+							},
+							"fullDescription": {
+								"text": "This can have security implications when the associated resource is expected to have certain properties or values, such as a variable that determines whether a user has been authenticated or not."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/665.html"
+						},
+						{
+							"guid": "7b7eb3a3-5089-4001-9ff1-05831e69c149",
+							"id": "665",
+							"shortDescription": {
+								"text": "The product does not initialize or incorrectly initializes a resource, which might leave the resource in an unexpected state when it is accessed or used."
+							},
+							"fullDescription": {
+								"text": "This can have security implications when the associated resource is expected to have certain properties or values, such as a variable that determines whether a user has been authenticated or not."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/665.html"
+						},
+						{
+							"guid": "7b7eb3a3-5089-4001-9ff1-05831e69c149",
+							"id": "665",
+							"shortDescription": {
+								"text": "The product does not initialize or incorrectly initializes a resource, which might leave the resource in an unexpected state when it is accessed or used."
+							},
+							"fullDescription": {
+								"text": "This can have security implications when the associated resource is expected to have certain properties or values, such as a variable that determines whether a user has been authenticated or not."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/665.html"
+						},
+						{
+							"guid": "8df71160-4cf9-4ba4-a3a5-c91281f23560",
+							"id": "400",
+							"shortDescription": {
+								"text": "The product does not properly control the allocation and maintenance of a limited resource, thereby enabling an actor to influence the amount of resources consumed, eventually leading to the exhaustion of available resources."
+							},
+							"fullDescription": {
+								"text": "Limited resources include memory, file system storage, database connection pool entries, and CPU. If an attacker can trigger the allocation of these limited resources, but the number or size of the resources is not controlled, then the attacker could cause a denial of service that consumes all available resources. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system. There are at least three distinct scenarios which can commonly lead to resource exhaustion: Lack of throttling for the number of allocated resources Losing all references to a resource before reaching the shutdown stage Not closing/returning a resource after processing Resource exhaustion problems are often result due to an incorrect implementation of the following situations: Error conditions and other exceptional circumstances. Confusion over which part of the program is responsible for releasing the resource."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/400.html"
+						},
+						{
+							"guid": "8df71160-4cf9-4ba4-a3a5-c91281f23560",
+							"id": "400",
+							"shortDescription": {
+								"text": "The product does not properly control the allocation and maintenance of a limited resource, thereby enabling an actor to influence the amount of resources consumed, eventually leading to the exhaustion of available resources."
+							},
+							"fullDescription": {
+								"text": "Limited resources include memory, file system storage, database connection pool entries, and CPU. If an attacker can trigger the allocation of these limited resources, but the number or size of the resources is not controlled, then the attacker could cause a denial of service that consumes all available resources. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system. There are at least three distinct scenarios which can commonly lead to resource exhaustion: Lack of throttling for the number of allocated resources Losing all references to a resource before reaching the shutdown stage Not closing/returning a resource after processing Resource exhaustion problems are often result due to an incorrect implementation of the following situations: Error conditions and other exceptional circumstances. Confusion over which part of the program is responsible for releasing the resource."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/400.html"
+						},
+						{
+							"guid": "40f8cc43-56f5-4852-aeff-55632c50257e",
+							"id": "710",
+							"shortDescription": {
+								"text": "The product does not follow certain coding rules for development, which can lead to resultant weaknesses or increase the severity of the associated vulnerabilities."
+							},
+							"fullDescription": {
+								"text": "The product does not follow certain coding rules for development, which can lead to resultant weaknesses or increase the severity of the associated vulnerabilities."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/710.html"
+						},
+						{
+							"guid": "7b7eb3a3-5089-4001-9ff1-05831e69c149",
+							"id": "665",
+							"shortDescription": {
+								"text": "The product does not initialize or incorrectly initializes a resource, which might leave the resource in an unexpected state when it is accessed or used."
+							},
+							"fullDescription": {
+								"text": "This can have security implications when the associated resource is expected to have certain properties or values, such as a variable that determines whether a user has been authenticated or not."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/665.html"
+						},
+						{
+							"guid": "7b7eb3a3-5089-4001-9ff1-05831e69c149",
+							"id": "665",
+							"shortDescription": {
+								"text": "The product does not initialize or incorrectly initializes a resource, which might leave the resource in an unexpected state when it is accessed or used."
+							},
+							"fullDescription": {
+								"text": "This can have security implications when the associated resource is expected to have certain properties or values, such as a variable that determines whether a user has been authenticated or not."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/665.html"
+						},
+						{
+							"guid": "860224d8-21cf-4a50-8f35-80ba9c0c41a9",
+							"id": "284",
+							"shortDescription": {
+								"text": "The product does not restrict or incorrectly restricts access to a resource from an unauthorized actor."
+							},
+							"fullDescription": {
+								"text": "Access control involves the use of several protection mechanisms such as: Authentication (proving the identity of an actor) Authorization (ensuring that a given actor can access a resource), and Accountability (tracking of activities that were performed) When any mechanism is not applied or otherwise fails, attackers can compromise the security of the product by gaining privileges, reading sensitive information, executing commands, evading detection, etc. There are two distinct behaviors that can introduce access control weaknesses: Specification: incorrect privileges, permissions, ownership, etc. are explicitly specified for either the user or the resource (for example, setting a password file to be world-writable, or giving administrator capabilities to a guest user). This action could be performed by the program or the administrator. Enforcement: the mechanism contains errors that prevent it from properly enforcing the specified access control requirements (e.g., allowing the user to specify their own privileges, or allowing a syntactically-incorrect ACL to produce insecure settings). This problem occurs within the program itself, in that it does not actually enforce the intended security policy that the administrator specifies."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/284.html"
+						},
+						{
+							"guid": "e3250fb8-2988-47b1-b965-3e808f938101",
+							"id": "754",
+							"shortDescription": {
+								"text": "The product does not check or incorrectly checks for unusual or exceptional conditions that are not expected to occur frequently during day to day operation of the product."
+							},
+							"fullDescription": {
+								"text": "The programmer may assume that certain events or conditions will never occur or do not need to be worried about, such as low memory conditions, lack of access to resources due to restrictive permissions, or misbehaving clients or components. However, attackers may intentionally trigger these unusual conditions, thus violating the programmer's assumptions, possibly introducing instability, incorrect behavior, or a vulnerability. Note that this entry is not exclusively about the use of exceptions and exception handling, which are mechanisms for both checking and handling unusual or unexpected conditions."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/754.html"
+						},
+						{
+							"guid": "f8686eef-5181-478e-a518-9fd44b1d64da",
+							"id": "459",
+							"shortDescription": {
+								"text": "The product does not properly clean up and remove temporary or supporting resources after they have been used."
+							},
+							"fullDescription": {
+								"text": "The product does not properly clean up and remove temporary or supporting resources after they have been used."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/459.html"
+						},
+						{
+							"guid": "8df71160-4cf9-4ba4-a3a5-c91281f23560",
+							"id": "400",
+							"shortDescription": {
+								"text": "The product does not properly control the allocation and maintenance of a limited resource, thereby enabling an actor to influence the amount of resources consumed, eventually leading to the exhaustion of available resources."
+							},
+							"fullDescription": {
+								"text": "Limited resources include memory, file system storage, database connection pool entries, and CPU. If an attacker can trigger the allocation of these limited resources, but the number or size of the resources is not controlled, then the attacker could cause a denial of service that consumes all available resources. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system. There are at least three distinct scenarios which can commonly lead to resource exhaustion: Lack of throttling for the number of allocated resources Losing all references to a resource before reaching the shutdown stage Not closing/returning a resource after processing Resource exhaustion problems are often result due to an incorrect implementation of the following situations: Error conditions and other exceptional circumstances. Confusion over which part of the program is responsible for releasing the resource."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/400.html"
+						},
+						{
+							"guid": "8df71160-4cf9-4ba4-a3a5-c91281f23560",
+							"id": "400",
+							"shortDescription": {
+								"text": "The product does not properly control the allocation and maintenance of a limited resource, thereby enabling an actor to influence the amount of resources consumed, eventually leading to the exhaustion of available resources."
+							},
+							"fullDescription": {
+								"text": "Limited resources include memory, file system storage, database connection pool entries, and CPU. If an attacker can trigger the allocation of these limited resources, but the number or size of the resources is not controlled, then the attacker could cause a denial of service that consumes all available resources. This would prevent valid users from accessing the product, and it could potentially have an impact on the surrounding environment. For example, a memory exhaustion attack against an application could slow down the application as well as its host operating system. There are at least three distinct scenarios which can commonly lead to resource exhaustion: Lack of throttling for the number of allocated resources Losing all references to a resource before reaching the shutdown stage Not closing/returning a resource after processing Resource exhaustion problems are often result due to an incorrect implementation of the following situations: Error conditions and other exceptional circumstances. Confusion over which part of the program is responsible for releasing the resource."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/400.html"
+						},
+						{
+							"guid": "4de04b04-589c-4e89-a752-fb66f3f986d3",
+							"id": "668",
+							"shortDescription": {
+								"text": "The product exposes a resource to the wrong control sphere, providing unintended actors with inappropriate access to the resource."
+							},
+							"fullDescription": {
+								"text": "Resources such as files and directories may be inadvertently exposed through mechanisms such as insecure permissions, or when a program accidentally operates on the wrong object. For example, a program may intend that private files can only be provided to a specific user. This effectively defines a control sphere that is intended to prevent attackers from accessing these private files. If the file permissions are insecure, then parties other than the user will be able to access those files. A separate control sphere might effectively require that the user can only access the private files, but not any other files on the system. If the program does not ensure that the user is only requesting private files, then the user might be able to access other files on the system. In either case, the end result is that a resource has been exposed to the wrong party."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/668.html"
+						},
+						{
+							"guid": "e3250fb8-2988-47b1-b965-3e808f938101",
+							"id": "754",
+							"shortDescription": {
+								"text": "The product does not check or incorrectly checks for unusual or exceptional conditions that are not expected to occur frequently during day to day operation of the product."
+							},
+							"fullDescription": {
+								"text": "The programmer may assume that certain events or conditions will never occur or do not need to be worried about, such as low memory conditions, lack of access to resources due to restrictive permissions, or misbehaving clients or components. However, attackers may intentionally trigger these unusual conditions, thus violating the programmer's assumptions, possibly introducing instability, incorrect behavior, or a vulnerability. Note that this entry is not exclusively about the use of exceptions and exception handling, which are mechanisms for both checking and handling unusual or unexpected conditions."
+							},
+							"helpUri": "https://cwe.mitre.org/data/definitions/754.html"
+						}
+					]
+				}
+			]
+		}
+	]
+}

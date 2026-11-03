@@ -1,41 +1,58 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@/lib/nav";
-import { Archive, FolderOpen, Minus, Plus, ScrollText } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { Archive, Container, FolderOpen } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SnykConnect } from "@/components/snyk-connect";
+import { SelectedScannerParams } from "@/components/selected-scanner-params";
+import type { ScannerGroup, ToolInfo } from "@/api/types";
 import { fetchTools, startScan, type SnykStatus } from "@/lib/api";
+import {
+  buildInitialParams,
+  paramsForScanners,
+  summarizeToolParams,
+  type ToolParamsState,
+} from "@/lib/scanner-params";
+
+const SCANNER_GROUPS: { id: ScannerGroup; label: string }[] = [
+  { id: "code", label: "Application code" },
+  { id: "secret", label: "Secrets" },
+  { id: "dependency", label: "Dependencies" },
+  { id: "iac", label: "Infrastructure" },
+];
 
 const schema = z.object({
-  configs: z.string(),
   github: z.string(),
 });
 
 type FormValues = z.infer<typeof schema>;
 
-const IMAGE_HINT = "Docker image: docker save -o app.tar, up to 4 GB";
+const UPLOAD_LIMIT = "10 GB";
 
-function isImageArchive(file: File | null): boolean {
-  return Boolean(file && file.name.toLowerCase().endsWith(".tar"));
+function isZipName(name: string): boolean {
+  return name.toLowerCase().endsWith(".zip");
 }
 
-function isAcceptedArchive(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower.endsWith(".zip") || lower.endsWith(".tar");
+function isImageTarName(name: string): boolean {
+  return name.toLowerCase().endsWith(".tar");
 }
 
 export function NewScanPage() {
   const tools = useQuery({ queryKey: ["tools"], queryFn: fetchTools });
   const [selected, setSelected] = useState<string[]>(["semgrep", "trivy"]);
-  const [archive, setArchive] = useState<File | null>(null);
+  const [toolParams, setToolParams] = useState<ToolParamsState>({});
+  const [expandedTool, setExpandedTool] = useState<string | null>(null);
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [folder, setFolder] = useState<File[] | null>(null);
   const zipInput = useRef<HTMLInputElement>(null);
-  const imageMode = isImageArchive(archive);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const imageMode = imageFile !== null;
   const [snykConnected, setSnykConnected] = useState(false);
   const onSnyk = useCallback((status: SnykStatus) => setSnykConnected(status.connected), []);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -43,8 +60,21 @@ export function NewScanPage() {
   const queryClient = useQueryClient();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { configs: "https://semgrep.dev/c/p/default", github: "" },
+    defaultValues: { github: "" },
   });
+
+  useEffect(() => {
+    if (!tools.data?.length) return;
+    setToolParams((current) => {
+      const next = { ...current };
+      for (const tool of tools.data) {
+        if (tool.parameters?.length && !next[tool.name]) {
+          next[tool.name] = buildInitialParams([tool])[tool.name];
+        }
+      }
+      return next;
+    });
+  }, [tools.data]);
 
   const imageTools = (tools.data ?? []).filter((tool) => tool.scans_images).map((tool) => tool.name);
   const defaultImageTools = (tools.data ?? [])
@@ -57,28 +87,40 @@ export function NewScanPage() {
       (name) => (!imageMode || imageTools.includes(name)) && (snykConnected || !cloudTools.includes(name)),
     );
 
-  const chooseArchive = (file: File | null) => {
-    setArchive(file);
+  const applyImageScanners = () => {
+    setSelected((current) => {
+      const kept = current.filter((name) => imageTools.includes(name));
+      return kept.length > 0 ? kept : defaultImageTools;
+    });
+  };
+
+  const chooseZip = (file: File | null) => {
+    setZipFile(file);
     if (!file) return;
+    setImageFile(null);
     setFolder(null);
-    if (isImageArchive(file)) {
-      setSelected((current) => {
-        const kept = current.filter((name) => imageTools.includes(name));
-        return kept.length > 0 ? kept : defaultImageTools;
-      });
-    }
+  };
+
+  const chooseImage = (file: File | null) => {
+    setImageFile(file);
+    if (!file) return;
+    setZipFile(null);
+    setFolder(null);
+    applyImageScanners();
   };
 
   const mutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      startScan({
-        archive: folder ? null : archive,
+    mutationFn: (values: FormValues) => {
+      const scannersToRun = runnable(selected);
+      return startScan({
+        archive: folder ? null : imageFile ?? zipFile,
         folder,
         githubUrl: values.github,
-        scanners: runnable(selected),
-        configs: values.configs,
+        scanners: scannersToRun,
+        params: paramsForScanners(scannersToRun, tools.data ?? [], toolParams),
         useDocker: true,
-      }),
+      });
+    },
     onSuccess: async (scan) => {
       toast.success(`Scan of ${scan.target_label} started`);
       await queryClient.invalidateQueries({ queryKey: ["scans"] });
@@ -92,23 +134,24 @@ export function NewScanPage() {
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-signal">SAST</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">New scan</h1>
       <p className="mt-2 max-w-xl text-sm leading-6 text-ink-muted">
-        Add the project as a zip file, choose its folder, or upload a Docker image as a .tar file. GrepHunt copies it and
-        scans it without running it.
+        Scan source code from a zip or folder, or scan a saved Docker image (.tar from{" "}
+        <span className="font-mono text-xs">docker save</span>). Nothing is executed on your machine.
       </p>
 
       <form
         className="mt-8 space-y-6"
         onSubmit={form.handleSubmit((values) => {
-          if (!values.github.trim() && !archive && (!folder || folder.length === 0)) {
-            toast.error("Add a zip file, choose a project folder, or paste a GitHub link.");
+          if (!values.github.trim() && !zipFile && !imageFile && (!folder || folder.length === 0)) {
+            toast.error("Add a zip, a Docker image .tar, a project folder, or a GitHub link.");
             return;
           }
-          if (runnable(selected).length === 0) {
-            toast.error("Select at least one scanner");
-            return;
-          }
-          if (!values.configs.trim()) {
-            toast.error("Add at least one rules path before starting the scan.");
+          const scannersToRun = runnable(selected);
+          if (scannersToRun.length === 0) {
+            toast.error(
+              imageMode
+                ? "Select at least one scanner that supports container images (for example Trivy or Grype)."
+                : "Select at least one scanner",
+            );
             return;
           }
           mutation.mutate(values);
@@ -118,150 +161,144 @@ export function NewScanPage() {
           <span className="mb-1.5 block text-sm">GitHub repository</span>
           <Input
             placeholder="https://github.com/owner/repo"
-            aria-label="Public GitHub repository link. GrepHunt downloads a copy, up to 500 MB."
-            title="Public GitHub repository. GrepHunt downloads a copy, up to 500 MB."
+            aria-label={`Public GitHub repository link. GrepHunt downloads a copy, up to ${UPLOAD_LIMIT}.`}
+            title={`Public GitHub repository. GrepHunt downloads a copy, up to ${UPLOAD_LIMIT}.`}
             {...form.register("github")}
           />
         </label>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              const file = event.dataTransfer.files?.[0];
-              if (!file) return;
-              if (!isAcceptedArchive(file.name)) {
-                toast.error("Drop a .zip of the project or a Docker image .tar, or use Choose a project folder.");
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <UploadCard
+            active={zipFile !== null}
+            icon={Archive}
+            title={zipFile ? zipFile.name : "Project zip"}
+            hint={`Source archive (.zip), up to ${UPLOAD_LIMIT}`}
+            dropLabel="Drop a .zip file here"
+            onPick={() => zipInput.current?.click()}
+            onDropFile={(file) => {
+              if (!isZipName(file.name)) {
+                toast.error("Use a .zip file for source code, or the Docker image card for a .tar.");
                 return;
               }
-              chooseArchive(file);
+              chooseZip(file);
             }}
-          >
-            <button
-              type="button"
-              title="Upload one .zip of the project (up to 500 MB) or a Docker image .tar (up to 4 GB). You can also drop the file on this card."
-              aria-label="Upload a zip or an image. One .zip of the project, up to 500 MB, or a Docker image .tar, up to 4 GB. You can also drop the file on this card."
-              onClick={() => zipInput.current?.click()}
-              className={`flex h-full w-full flex-col items-center justify-center rounded-lg border border-dashed px-4 py-8 text-center ${
-                archive ? "border-signal/60 bg-signal/10" : "border-ink-line bg-ink-panel hover:border-signal/50"
-              }`}
-            >
-              <Archive className="size-5 text-ink-muted" aria-hidden="true" />
-              <span className="mt-2 text-sm">{archive ? archive.name : "Upload a zip or an image"}</span>
-              <span className="mt-1 text-xs leading-5 text-ink-muted">
-                {imageMode ? IMAGE_HINT : "A .zip of the project (500 MB) or a Docker image .tar (4 GB). You can drop it here."}
-              </span>
-            </button>
-            <input
-              ref={zipInput}
-              type="file"
-              accept=".zip,.tar,application/zip,application/x-tar"
-              className="sr-only"
-              tabIndex={-1}
-              aria-label="Upload a zip of the project, up to 500 MB, or a Docker image tar, up to 4 GB"
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                if (file && !isAcceptedArchive(file.name)) {
-                  toast.error("Choose a .zip of the project or a Docker image .tar, or use Choose a project folder.");
-                  event.target.value = "";
-                  return;
-                }
-                chooseArchive(file);
+          />
+          <input
+            ref={zipInput}
+            type="file"
+            accept=".zip,application/zip"
+            className="sr-only"
+            tabIndex={-1}
+            aria-label={`Upload project zip, up to ${UPLOAD_LIMIT}`}
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              if (file && !isZipName(file.name)) {
+                toast.error("Choose a .zip file.");
                 event.target.value = "";
-              }}
-            />
-          </div>
-          <div>
-            <button
-              type="button"
-              title="Choose the project folder on your computer. Its files are copied here, up to 500 MB."
-              aria-label="Choose a project folder. Pick the folder on your computer. Its files are copied here, up to 500 MB."
-              onClick={() => folderInput.current?.click()}
-              className={`flex h-full w-full flex-col items-center justify-center rounded-lg border border-dashed px-4 py-8 text-center ${
-                folder ? "border-signal/60 bg-signal/10" : "border-ink-line bg-ink-panel hover:border-signal/50"
-              }`}
-            >
-              <FolderOpen className="size-5 text-ink-muted" aria-hidden="true" />
-              <span className="mt-2 text-sm">
-                {folder && folder.length > 0
-                  ? `${folder[0].webkitRelativePath.split("/")[0] || "Folder"} · ${folder.length} files`
-                  : "Choose a project folder"}
-              </span>
-              <span className="mt-1 text-xs leading-5 text-ink-muted">
-                Pick the folder on your computer. Its files are copied here, up to 500 MB.
-              </span>
-            </button>
-            <input
-              ref={folderInput}
-              type="file"
-              className="sr-only"
-              multiple
-              tabIndex={-1}
-              aria-label="Choose a project folder. Its files are copied here, up to 500 MB"
-              {...{ webkitdirectory: "", directory: "" }}
-              onChange={(event) => {
-                const picked = event.target.files ? Array.from(event.target.files) : [];
-                setFolder(picked.length > 0 ? picked : null);
-                if (picked.length > 0) setArchive(null);
+                return;
+              }
+              chooseZip(file);
+              event.target.value = "";
+            }}
+          />
+
+          <UploadCard
+            active={imageFile !== null}
+            icon={Container}
+            title={imageFile ? imageFile.name : "Docker image"}
+            hint={`Image tar from docker save, up to ${UPLOAD_LIMIT}. Not unpacked — scanned as an image.`}
+            dropLabel="Drop a .tar image here"
+            onPick={() => imageInput.current?.click()}
+            onDropFile={(file) => {
+              if (!isImageTarName(file.name)) {
+                toast.error("Use a .tar from docker save (or OCI layout tar).");
+                return;
+              }
+              chooseImage(file);
+            }}
+            footer={
+              imageMode ? (
+                <p className="mt-2 text-[11px] leading-4 text-signal">
+                  Image scan · {imageTools.length > 0 ? imageTools.join(", ") : "Trivy, Grype, Syft, …"}
+                </p>
+              ) : (
+                <p className="mt-2 font-mono text-[10px] leading-4 text-ink-muted">docker save -o app.tar myapp:tag</p>
+              )
+            }
+          />
+          <input
+            ref={imageInput}
+            type="file"
+            accept=".tar,application/x-tar"
+            className="sr-only"
+            tabIndex={-1}
+            aria-label={`Upload Docker image tar, up to ${UPLOAD_LIMIT}`}
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              if (file && !isImageTarName(file.name)) {
+                toast.error("Choose a .tar file from docker save.");
                 event.target.value = "";
-              }}
-            />
-          </div>
+                return;
+              }
+              chooseImage(file);
+              event.target.value = "";
+            }}
+          />
+
+          <UploadCard
+            active={folder !== null && folder.length > 0}
+            icon={FolderOpen}
+            title={
+              folder && folder.length > 0
+                ? `${folder[0].webkitRelativePath.split("/")[0] || "Folder"} · ${folder.length} files`
+                : "Project folder"
+            }
+            hint={`Folder on this computer, up to ${UPLOAD_LIMIT}`}
+            dropLabel="Folder pick only (use the button)"
+            onPick={() => folderInput.current?.click()}
+            onDropFile={() => {
+              toast.error("Use Choose a project folder to pick a directory.");
+            }}
+          />
+          <input
+            ref={folderInput}
+            type="file"
+            className="sr-only"
+            multiple
+            tabIndex={-1}
+            aria-label={`Choose a project folder, up to ${UPLOAD_LIMIT}`}
+            {...{ webkitdirectory: "", directory: "" }}
+            onChange={(event) => {
+              const picked = event.target.files ? Array.from(event.target.files) : [];
+              setFolder(picked.length > 0 ? picked : null);
+              if (picked.length > 0) {
+                setZipFile(null);
+                setImageFile(null);
+              }
+              event.target.value = "";
+            }}
+          />
         </div>
 
         <SnykConnect onChange={onSnyk} />
 
-        <fieldset>
-          <legend className="mb-2 text-sm">Scanners</legend>
-          {imageMode && (
-            <p className="mb-2 text-xs leading-5 text-ink-muted">
-              Image scan: only scanners that read container images can run. The others are turned off.
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2">
-            {(tools.data ?? []).map((tool) => {
-              const needsLogin = tool.cloud && !snykConnected;
-              const blocked = (imageMode && !tool.scans_images) || needsLogin;
-              const on = selected.includes(tool.name) && !blocked;
-              return (
-                <button
-                  key={tool.name}
-                  type="button"
-                  disabled={blocked}
-                  title={
-                    needsLogin
-                      ? "Connect Snyk first"
-                      : blocked
-                        ? `${tool.name} does not scan container images`
-                        : tool.cloud
-                          ? "Runs in the vendor's cloud: project data leaves this machine"
-                          : undefined
-                  }
-                  onClick={() =>
-                    setSelected((current) =>
-                      current.includes(tool.name)
-                        ? current.filter((item) => item !== tool.name)
-                        : [...current, tool.name],
-                    )
-                  }
-                  aria-pressed={on}
-                  aria-label={`${on ? "Deselect" : "Select"} scanner ${tool.name} ${tool.version}`}
-                  className={`min-w-32 rounded-md border px-4 py-1 text-center leading-tight disabled:cursor-not-allowed disabled:opacity-40 ${on ? "border-signal/60 bg-signal/10" : "border-ink-line"}`}
-                >
-                  <span className="block font-mono text-sm leading-4">{tool.name}</span>
-                  <span className="font-mono text-[11px] leading-4 text-ink-muted">
-                    {tool.version}
-                    {tool.scans_images ? " · image" : ""}
-                    {tool.cloud ? " · cloud" : ""}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </fieldset>
+        <ScannerPicker
+          tools={tools.data ?? []}
+          selected={selected}
+          onSelectedChange={setSelected}
+          imageMode={imageMode}
+          snykConnected={snykConnected}
+          toolParams={toolParams}
+        />
 
-        <RulesPath configs={form.watch("configs")} onChange={(value) => form.setValue("configs", value)} />
+        <SelectedScannerParams
+          tools={tools.data ?? []}
+          selected={runnable(selected)}
+          params={toolParams}
+          onParamsChange={(tool, values) => setToolParams((current) => ({ ...current, [tool]: values }))}
+          expanded={expandedTool}
+          onExpandedChange={setExpandedTool}
+        />
 
         <Button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? "Starting" : "Start scan"}
@@ -271,142 +308,146 @@ export function NewScanPage() {
   );
 }
 
-type RulePreview = {
-  origin: string;
-  source: string;
-  total: number;
-  shown: number;
-  rules: Array<{ id: string; severity: string; message: string }>;
-};
-
-function sentence(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed) return "Could not read these rules";
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+function UploadCard({
+  active,
+  icon: Icon,
+  title,
+  hint,
+  dropLabel,
+  onPick,
+  onDropFile,
+  footer,
+}: {
+  active: boolean;
+  icon: typeof Archive;
+  title: string;
+  hint: string;
+  dropLabel: string;
+  onPick: () => void;
+  onDropFile: (file: File) => void;
+  footer?: ReactNode;
+}) {
+  return (
+    <div
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        const file = event.dataTransfer.files?.[0];
+        if (file) onDropFile(file);
+      }}
+    >
+      <button
+        type="button"
+        title={dropLabel}
+        aria-label={`${title}. ${hint}`}
+        onClick={onPick}
+        className={`flex h-full min-h-[9.5rem] w-full flex-col items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center ${
+          active ? "border-signal/60 bg-signal/10" : "border-ink-line bg-ink-panel hover:border-signal/50"
+        }`}
+      >
+        <Icon className="size-5 text-ink-muted" aria-hidden="true" />
+        <span className="mt-2 line-clamp-2 text-sm">{title}</span>
+        <span className="mt-1 text-xs leading-5 text-ink-muted">{hint}</span>
+        {footer}
+      </button>
+    </div>
+  );
 }
 
-function RulesPath({ configs, onChange }: { configs: string; onChange: (value: string) => void }) {
-  const [items, setItems] = useState(() => configs.split(",").map((item) => item.trim()).filter(Boolean));
-  const [openIndex, setOpenIndex] = useState<number | null>(null);
-  const [preview, setPreview] = useState<RulePreview | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const publish = (next: string[]) => {
-    const rows = next.length > 0 ? next : [""];
-    setItems(rows);
-    onChange(rows.map((item) => item.trim()).filter(Boolean).join(","));
-  };
-
-  const load = async (path: string) => {
-    setLoading(true);
-    setError("");
-    setPreview(null);
-    try {
-      const response = await fetch(`/api/rules?config=${encodeURIComponent(path)}`);
-      const body = await response.json();
-      if (!response.ok) {
-        setError(typeof body.detail === "string" ? sentence(body.detail) : "Could not read these rules");
-        return;
-      }
-      setPreview(body as RulePreview);
-    } catch {
-      setError("Could not read these rules");
-    } finally {
-      setLoading(false);
-    }
-  };
+function ScannerPicker({
+  tools,
+  selected,
+  onSelectedChange,
+  imageMode,
+  snykConnected,
+  toolParams,
+}: {
+  tools: ToolInfo[];
+  selected: string[];
+  onSelectedChange: (names: string[]) => void;
+  imageMode: boolean;
+  snykConnected: boolean;
+  toolParams: ToolParamsState;
+}) {
+  const byGroup = SCANNER_GROUPS.map((group) => ({
+    ...group,
+    tools: tools.filter((tool) => tool.group === group.id),
+  })).filter((group) => group.tools.length > 0);
 
   return (
     <fieldset>
-      <legend className="mb-1.5 text-sm">Rules path</legend>
-      <ul className="space-y-2">
-        {items.map((item, index) => (
-          <li key={index}>
-            <div className="flex items-center gap-2">
-              <span className="relative block min-w-0 flex-1">
-                <Input
-                  value={item}
-                  className="pr-10"
-                  aria-label={`Ruleset ${index + 1}`}
-                  placeholder="https://semgrep.dev/c/p/default"
-                  onChange={(event) => {
-                    const next = [...items];
-                    next[index] = event.target.value;
-                    publish(next);
-                    if (openIndex === index) setOpenIndex(null);
-                  }}
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-ink-muted hover:text-ink-text"
-                  aria-expanded={openIndex === index}
-                  aria-label={`Show rules for ruleset ${index + 1}`}
-                  title="Show rules in this ruleset"
-                  onClick={() => {
-                    if (openIndex === index) {
-                      setOpenIndex(null);
-                      return;
-                    }
-                    setOpenIndex(index);
-                    void load(item);
-                  }}
-                >
-                  <ScrollText className="size-4" aria-hidden="true" />
-                </button>
-              </span>
-              {index === 0 && (
-                <button
-                  type="button"
-                  className="flex size-9 shrink-0 items-center justify-center rounded-md border border-ink-line text-ink-muted hover:text-ink-text"
-                  aria-label="Add another ruleset"
-                  title="Add another ruleset"
-                  onClick={() => publish([...items, ""])}
-                >
-                  <Plus className="size-4" aria-hidden="true" />
-                </button>
-              )}
-              <button
-                type="button"
-                className="flex size-9 shrink-0 items-center justify-center rounded-md border border-ink-line text-ink-muted hover:text-ink-text"
-                aria-label={`Remove ruleset ${index + 1}`}
-                title="Remove this ruleset"
-                onClick={() => {
-                  publish(items.filter((_, itemIndex) => itemIndex !== index));
-                  setOpenIndex(null);
-                }}
-              >
-                <Minus className="size-4" aria-hidden="true" />
-              </button>
-            </div>
-            {openIndex === index && (
-              <div className="mt-2 max-h-72 overflow-auto rounded-md border border-ink-line bg-ink-panel p-3 text-sm">
-                {loading && <p className="text-ink-muted">Reading rules…</p>}
-                {error && <p className="text-ink-muted">{error}</p>}
-                {preview && preview.total === 0 && <p className="text-ink-muted">No rules in this ruleset.</p>}
-                {preview && preview.total > 0 && (
-                  <>
-                    <p className="text-xs text-ink-muted">
-                      {preview.origin}. {preview.source}. Showing {preview.shown} of {preview.total}.
-                    </p>
-                    <ul className="mt-3 space-y-3">
-                      {preview.rules.map((rule, ruleIndex) => (
-                        <li key={`${rule.id}-${ruleIndex}`}>
-                          <p className="font-mono text-xs">
-                            {rule.severity ? `${rule.severity} · ` : ""}
-                            {rule.id}
-                          </p>
-                          {rule.message && <p className="mt-1 text-xs leading-5 text-ink-muted">{rule.message}</p>}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-            )}
-          </li>
+      <legend className="mb-2 text-sm">Scanners</legend>
+      <p className="mb-3 text-xs leading-5 text-ink-muted">
+        Select scanners to run. Adjust options in the block below when a scanner is selected.
+      </p>
+      {imageMode && (
+        <p className="mb-3 text-xs leading-5 text-ink-muted">
+          Image scan: only scanners that read container images can run. The others are turned off.
+        </p>
+      )}
+      <div className="space-y-5">
+        {byGroup.map((group) => (
+          <div key={group.id}>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-muted">{group.label}</p>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {group.tools.map((tool) => {
+                const needsLogin = tool.cloud && !snykConnected;
+                const blocked = (imageMode && !tool.scans_images) || needsLogin;
+                const on = selected.includes(tool.name) && !blocked;
+                const paramSummary =
+                  on && tool.parameters?.length ? summarizeToolParams(tool, toolParams[tool.name]) : "";
+                return (
+                  <li key={tool.name}>
+                    <button
+                      type="button"
+                      disabled={blocked}
+                      title={
+                        needsLogin
+                          ? "Connect Snyk first"
+                          : blocked
+                            ? `${tool.name} does not scan container images`
+                            : tool.cloud
+                              ? "Runs in the vendor's cloud: project data leaves this machine"
+                              : undefined
+                      }
+                      onClick={() =>
+                        onSelectedChange(
+                          selected.includes(tool.name)
+                            ? selected.filter((item) => item !== tool.name)
+                            : [...selected, tool.name],
+                        )
+                      }
+                      aria-pressed={on}
+                      aria-label={`${on ? "Deselect" : "Select"} scanner ${tool.name}`}
+                      className={`w-full rounded-md border px-3 py-2.5 text-left leading-snug disabled:cursor-not-allowed disabled:opacity-40 ${
+                        on ? "border-signal/60 bg-signal/10" : "border-ink-line hover:border-ink-muted/60"
+                      }`}
+                    >
+                      <span className="font-mono text-sm">{tool.name}</span>
+                      <span className="mt-0.5 font-mono text-[10px] leading-4 text-ink-muted">
+                        v{tool.version}
+                        {tool.scans_images ? " · image" : ""}
+                        {tool.cloud ? " · cloud" : ""}
+                      </span>
+                      {tool.languages && (
+                        <span className="mt-1.5 block text-xs text-ink-muted">
+                          <span className="text-ink-text/80">Languages:</span> {tool.languages}
+                        </span>
+                      )}
+                      {tool.purpose && (
+                        <span className="mt-0.5 block text-xs leading-5 text-ink-muted">{tool.purpose}</span>
+                      )}
+                      {paramSummary && (
+                        <span className="mt-1.5 block truncate text-xs text-signal/90">Run: {paramSummary}</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
     </fieldset>
   );
 }

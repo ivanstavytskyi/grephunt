@@ -23,3 +23,16 @@ cache_volumes:
 cap_drop:
   - ALL
 no_new_privileges: true
+parameters:
+  - name: scanners
+    type: multi
+    label: Scan modes
+    description: Which Trivy scanners to run on this target
+    choices:
+      - vuln
+      - secret
+      - misconfig
+    default:
+      - vuln
+      - secret
+      - misconfig
