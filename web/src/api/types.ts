@@ -1,5 +1,27 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
+export type SourceMarkKind = "finding" | "input" | "route" | "sink" | "call";
+
+export type SourceMark = {
+  line: number;
+  end_line?: number;
+  kind: SourceMarkKind;
+  label: string;
+  severity?: Severity;
+  fingerprint?: string;
+  correlation_key?: string;
+};
+
+export type SourceView = {
+  path: string;
+  language: string | null;
+  start: number;
+  lines: string[];
+  total_lines: number;
+  focus: { start: number; end: number };
+  marks: SourceMark[];
+};
+
 export type Finding = {
   module: string;
   category: "code" | "secret" | "dependency" | "misconfig";

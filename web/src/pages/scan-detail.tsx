@@ -10,6 +10,7 @@ import { SelectMenu } from "@/components/select-menu";
 import { PanelBoundary } from "@/components/panel-boundary";
 import { ScanMap } from "@/components/scan-map";
 import { Snippet } from "@/components/snippet";
+import { FindingCode } from "@/components/code-view";
 import { Badge } from "@/components/ui/badge";
 import { ScanRunParams } from "@/components/scan-run-params";
 import { dismissFindings, fetchFindings, fetchLog, fetchScan, fetchTools, watchScan, type LiveChannel } from "@/lib/api";
@@ -324,7 +325,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
         <ScanReportAi scan={scan.data} findings={rows} />
       </div>
 
-      <div className="mt-3 grid items-start gap-4 xl:grid-cols-[1fr_320px]">
+      <div className="mt-3 grid items-start gap-4 xl:grid-cols-[1fr_420px]">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-line bg-ink-panel px-4 py-3">
             <div className="min-w-0">
@@ -371,7 +372,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
         </PanelBoundary>
         </div>
         <aside className="rounded-lg border border-ink-line bg-ink-panel p-4">
-          {selected ? <FindingDetail finding={selected} /> : <p className="text-sm text-ink-muted">Select a row to see the evidence.</p>}
+          {selected ? <FindingDetail scanId={scanId} finding={selected} /> : <p className="text-sm text-ink-muted">Select a row to see the evidence.</p>}
         </aside>
       </div>
     </div>
@@ -446,7 +447,7 @@ function ScanClock({
   );
 }
 
-function FindingDetail({ finding }: { finding: Finding }) {
+function FindingDetail({ scanId, finding }: { scanId: string; finding: Finding }) {
   const cwe = finding.cwe ?? [];
   const cve = finding.cve ?? [];
   return (
@@ -456,8 +457,13 @@ function FindingDetail({ finding }: { finding: Finding }) {
       {finding.location && (
         <p className="font-mono text-xs text-ink-muted">{locationLabel(finding.location)}</p>
       )}
-      {finding.snippet && <Snippet code={finding.snippet} path={finding.location?.path ?? null} />}
-      <dl className="space-y-1 font-mono text-[11px] leading-5 text-ink-muted">
+      <FindingCode
+        key={`${finding.fingerprint}:${finding.correlation_key}`}
+        scanId={scanId}
+        finding={finding}
+        fallback={finding.snippet ? <Snippet code={finding.snippet} path={finding.location?.path ?? null} /> : null}
+      />
+      <dl className="space-y-1 break-all font-mono text-[11px] leading-5 text-ink-muted">
         <div>fingerprint {finding.fingerprint}</div>
         <div>correlation {finding.correlation_key}</div>
         <div>module {finding.module}</div>

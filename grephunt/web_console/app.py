@@ -38,6 +38,7 @@ from grephunt.web_console.scans import (
     get_findings,
     get_project_map,
     get_scan,
+    get_source,
     list_scans,
     list_tools,
     rebuild_project_map,
@@ -254,6 +255,19 @@ async def project_map_rebuild(scan_id: str) -> dict:
     try:
         found = await asyncio.to_thread(rebuild_project_map, scan_id)
     except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return found
+
+
+@app.get("/api/scans/{scan_id}/source")
+def scan_source(scan_id: str, path: str, line: int | None = None, end_line: int | None = None, context: int = 12) -> dict:
+    from grephunt.web_console.source_view import SourceUnavailable
+
+    try:
+        found = get_source(scan_id, path, line, end_line, max(0, min(context, 1000)))
+    except SourceUnavailable as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if found is None:
         raise HTTPException(status_code=404, detail="scan not found")

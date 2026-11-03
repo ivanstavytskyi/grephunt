@@ -220,6 +220,17 @@ def get_project_map(scan_id: str) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def get_source(scan_id: str, path: str, line: int | None, end_line: int | None, context: int) -> dict | None:
+    """Lines of a scanned file around a finding, with marks from the map and other findings."""
+    from grephunt.web_console.source_view import load_map, read_source
+
+    found = get_scan(scan_id)
+    if found is None:
+        return None
+    target = Path(found.get("target_path") or "")
+    return read_source(target, path, line, end_line, context, get_findings(scan_id) or [], load_map(_scan_dir(scan_id)))
+
+
 def rebuild_project_map(scan_id: str) -> dict | None:
     """Build the map again from the scan's target, for scans made before the map existed."""
     from grephunt.project_map import build_project_map, write_project_map

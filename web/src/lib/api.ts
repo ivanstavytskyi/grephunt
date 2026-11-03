@@ -1,4 +1,4 @@
-import type { Finding, ScanEvent, ScanSummary, ToolInfo } from "@/api/types";
+import type { Finding, ScanEvent, ScanSummary, SourceView, ToolInfo } from "@/api/types";
 
 async function readError(response: Response) {
   try {
@@ -29,6 +29,18 @@ export async function fetchScan(id: string): Promise<ScanSummary> {
 
 export async function fetchFindings(id: string): Promise<Finding[]> {
   const response = await fetch(`/api/scans/${id}/findings`);
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function fetchSource(
+  scanId: string,
+  input: { path: string; line?: number | null; endLine?: number | null; context: number },
+): Promise<SourceView> {
+  const params = new URLSearchParams({ path: input.path, context: String(input.context) });
+  if (input.line) params.set("line", String(input.line));
+  if (input.endLine) params.set("end_line", String(input.endLine));
+  const response = await fetch(`/api/scans/${scanId}/source?${params.toString()}`);
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }
