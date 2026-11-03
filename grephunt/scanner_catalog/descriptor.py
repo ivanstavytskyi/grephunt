@@ -68,6 +68,9 @@ class ToolDescriptor(BaseModel):
     applies_to: list[str] = Field(default_factory=list)
     """File name globs. The tool is skipped when no file in the project matches. Empty means always."""
     prepare: PrepareStep | None = None
+    ok_exit_codes: list[int] | None = None
+    """Exit codes of a finished scan. Any other code fails the task even if a report was written,
+    because some tools write an empty report when they could not load their database."""
     severity_property: str | None = None
     """SARIF property (on the result or its rule) that holds the tool's own severity word."""
     severity_map: dict[str, str] = Field(default_factory=dict)

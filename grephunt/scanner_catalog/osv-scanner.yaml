@@ -1,0 +1,49 @@
+name: osv-scanner
+module: sast
+binary: osv-scanner
+image: ghcr.io/google/osv-scanner:v2.7.0
+version: "2.7.0"
+container_binary: /osv-scanner
+timeout_sec: 1800
+# --offline matches packages against local databases and resolves nothing over the
+# network. The network is only for --download-offline-databases: whole ecosystem
+# archives from osv-vulnerabilities.storage.googleapis.com. No package list leaves
+# the machine.
+network: true
+user: "65534"
+cpus: "2"
+memory: 3g
+pids_limit: 512
+args:
+  - scan
+  - source
+  - --recursive
+  - --offline
+  - --download-offline-databases
+  - --allow-no-lockfiles
+  # Rust call analysis runs build scripts from the project. Go call analysis needs a toolchain.
+  - --no-call-analysis=go
+  - --no-call-analysis=rust
+  - --format
+  - sarif
+  - --output-file
+  - "{output}"
+  - "{src}"
+output_filename: osv-scanner.sarif
+# 0: nothing found, 1: vulnerabilities found. 127 is an error (for example, no database),
+# and osv-scanner still writes an empty report then.
+ok_exit_codes: [0, 1]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: /var/osv-db
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: "*"
+cache_volumes:
+  - name: grephunt-osv-db
+    path: /var/osv-db
+cap_drop:
+  - ALL
+no_new_privileges: true

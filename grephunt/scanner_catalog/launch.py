@@ -226,6 +226,18 @@ class ScannerTool:
                 tool=self.name, status=TaskStatus.TIMEOUT, duration_sec=duration,
                 tool_version=version, image=self.descriptor.image, error=outcome.error,
             )
+        allowed = self.descriptor.ok_exit_codes
+        if allowed is not None and outcome.returncode not in allowed:
+            raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""
+            ascii_lines = [line.strip() for line in raw_tail.splitlines() if line.strip() and line.strip().isascii()]
+            tail = "\n".join(ascii_lines)[-2000:] or f"exit code {outcome.returncode}"
+            message = f"exit code {outcome.returncode}: {tail.splitlines()[-1][:400]}"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
+            return TaskRun(
+                tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
+                tool_version=version, image=self.descriptor.image, error=tail,
+            )
+
         if self.descriptor.output_source == "stdout" and outcome.stdout.strip():
             # Tools that print the report exit non-zero when they find something. The report still counts.
             (raw_path or sarif_path).write_text(outcome.stdout, encoding="utf-8")
