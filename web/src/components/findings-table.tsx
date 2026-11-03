@@ -4,11 +4,11 @@ import type { Finding, Severity } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { filterFindings, type FindingsFilterState } from "@/lib/findings-filter";
 import { locationLabel } from "@/lib/utils";
-import { ExploitabilityBadge } from "@/pages/scan-detail";
+import { ExploitabilityMeter } from "@/components/exploitability";
 
 const ROW_HEIGHT = 52;
-const COLUMNS_EDIT = "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_7rem]";
-const COLUMNS_VIEW = "grid-cols-[5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_7rem]";
+const COLUMNS_EDIT = "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_4.5rem_7rem]";
+const COLUMNS_VIEW = "grid-cols-[5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_4.5rem_7rem]";
 
 function rowTitle(finding: Finding): string {
   if (finding.package) return `${finding.package}@${finding.installed_version ?? ""}`;
@@ -101,6 +101,7 @@ export const FindingsTable = memo(function FindingsTable({
         <div className="px-3 py-2 font-medium">Category</div>
         <div className="px-3 py-2 font-medium">Location</div>
         <div className="px-3 py-2 font-medium">Finding</div>
+        <div className="px-3 py-2 font-medium" title="Estimated exploitability">Exploit</div>
         <div className="px-3 py-2 font-medium">Tool</div>
       </div>
       <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -133,9 +134,8 @@ export const FindingsTable = memo(function FindingsTable({
                 />
               </div>
               )}
-              <div className="flex flex-col items-start gap-1 px-3 py-2.5 align-top">
+              <div className="px-3 py-2.5">
                 <Badge tone={finding.severity}>{finding.severity}</Badge>
-                {finding.exploitability && <ExploitabilityBadge exploitability={finding.exploitability} compact />}
               </div>
               <div className="px-3 py-2.5 text-sm">{finding.category}</div>
               <div className="px-3 py-2.5 font-mono text-xs leading-5 break-all">{where}</div>
@@ -149,6 +149,9 @@ export const FindingsTable = memo(function FindingsTable({
                     {finding.context.database?.dynamic && <span className="ml-1.5 text-rose-300">· query built from variables</span>}
                   </p>
                 )}
+              </div>
+              <div className="flex px-3 py-2.5">
+                {finding.exploitability ? <ExploitabilityMeter exploitability={finding.exploitability} /> : <span className="text-xs text-ink-muted">—</span>}
               </div>
               <div className="px-3 py-2.5 font-mono text-xs text-ink-muted">{toolLabel(finding)}</div>
             </div>
