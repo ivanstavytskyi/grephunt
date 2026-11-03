@@ -21,6 +21,8 @@ import ELK from "elkjs/lib/elk.bundled.js";
 import "@xyflow/react/dist/style.css";
 import { ChevronDown, ChevronRight, Download, LayoutGrid, Plus, RefreshCw, StickyNote, X } from "lucide-react";
 import type { Finding, MapEdge, MapNode, MapOverlay, MapOverlayView, ProjectMap, Severity } from "@/api/types";
+import { FindingCode } from "@/components/code-view";
+import { Snippet } from "@/components/snippet";
 import { fetchMapOverlay, fetchProjectMap, rebuildProjectMap, saveMapOverlay } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +44,20 @@ type CardData = {
   block: boolean;
 };
 
-type Shape = { id: string; width: number; height: number; partition: number; data: Omit<CardData, "title" | "note" | "dimmed"> & { label: string }; source?: MapNode };
+type Shape = {
+  id: string;
+  width: number;
+  height: number;
+  partition: number;
+  data: Omit<CardData, "title" | "note" | "dimmed"> & { label: string };
+  source?: MapNode;
+  finding?: Finding;
+  findings?: Finding[];
+};
+
+type AttackOptions = { findings: boolean; attack: boolean; min: Severity };
+
+const FINDINGS_PER_GROUP = 40;
 type Link = { id: string; source: string; target: string; kind: string; label: string; count: number; dynamic: boolean; evidence: MapEdge["evidence"] };
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -72,6 +87,9 @@ const KIND_STRIPE: Record<string, string> = {
   file: "bg-zinc-300",
   package: "bg-sky-400",
   block: "bg-signal",
+  findings: "bg-orange-400",
+  finding: "bg-orange-300",
+  infra: "bg-sky-500",
 };
 const EDGE_STYLE: Record<string, { stroke: string; width: number }> = {
   http: { stroke: "#34d399", width: 1.4 },
@@ -80,6 +98,7 @@ const EDGE_STYLE: Record<string, { stroke: string; width: number }> = {
   import: { stroke: "#71717a", width: 1 },
   service: { stroke: "#38bdf8", width: 1.2 },
   link: { stroke: "#d6f25c", width: 1.6 },
+  finding: { stroke: "#fb923c", width: 1.2 },
 };
 // Left to right: infrastructure services (nginx, containers), frontend, routes, backend, ORM, data.
 const PARTITION: Record<string, number> = { other: 0, frontend: 1, route: 2, backend: 3, orm: 4, data: 5, external: 5 };
@@ -224,6 +243,115 @@ function neighbourhood(edges: MapEdge[], focus: string): Set<string> {
   return keep;
 }
 
+/** Findings by the architecture node they belong to: the file node, or an infrastructure folder node. */
+function findingHosts(map: ProjectMap, findings: Finding[]): Map<string, Finding[]> {
+  const files = new Set(map.architecture.nodes.filter((node) => node.kind === "file" && node.path).map((node) => node.path as string));
+  const known = new Set(map.files.nodes.filter((node) => node.path).map((node) => node.path as string));
+  const hosts = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    const raw = finding.location?.path;
+    if (!raw || finding.category === "dependency" || finding.category === "secret") continue;
+    let path = cleanPath(raw);
+    if (!known.has(path) && path.startsWith("src/") && known.has(path.slice(4))) path = path.slice(4);
+    const host = files.has(path) ? `f:${path}` : `i:${path.includes("/") ? path.split("/")[0] : "(root)"}`;
+    hosts.set(host, [...(hosts.get(host) ?? []), finding]);
+  }
+  return hosts;
+}
+
+function atLeast(severity: Severity, min: Severity): boolean {
+  return SEVERITY_RANK[severity] <= SEVERITY_RANK[min];
+}
+
+/** Nodes on a path to a vulnerable node: what leads to it (entry points, routes) and what it reaches (ORM, databases). */
+function attackPathNodes(map: ProjectMap, nodes: MapNode[], hosts: Map<string, Finding[]>, min: Severity): MapNode[] {
+  const targets = [...hosts].filter(([id, items]) => id.startsWith("f:") && items.some((item) => atLeast(item.severity, min))).map(([id]) => id);
+  const into = new Map<string, string[]>();
+  const out = new Map<string, string[]>();
+  for (const edge of map.architecture.edges) {
+    into.set(edge.target, [...(into.get(edge.target) ?? []), edge.source]);
+    out.set(edge.source, [...(out.get(edge.source) ?? []), edge.target]);
+  }
+  const keep = new Set(targets);
+  const walk = (start: string[], graph: Map<string, string[]>, depth: number) => {
+    let frontier = start;
+    for (let step = 0; step < depth && frontier.length; step += 1) {
+      const next: string[] = [];
+      for (const id of frontier) for (const neighbour of graph.get(id) ?? []) if (!keep.has(neighbour)) { keep.add(neighbour); next.push(neighbour); }
+      frontier = next;
+    }
+  };
+  walk(targets, into, 6);
+  walk(targets, out, 3);
+  return nodes.filter((node) => keep.has(node.id));
+}
+
+/** Finding groups hang off their file (or infrastructure folder); double-click a group to list its findings. */
+function addFindingNodes(
+  result: { shapes: Shape[]; links: Link[] },
+  hosts: Map<string, Finding[]>,
+  groupOf: Map<string, { id: string; label: string; kind: string }>,
+  expanded: Set<string>,
+  attack: AttackOptions,
+  focus: string | null,
+) {
+  const shown = new Map(result.shapes.map((shape) => [shape.id, shape]));
+  const byAnchor = new Map<string, Finding[]>();
+  for (const [host, items] of hosts) {
+    const relevant = attack.attack ? items.filter((item) => atLeast(item.severity, attack.min)) : items;
+    if (!relevant.length) continue;
+    let anchor = groupOf.get(host)?.id ?? host;
+    if (host.startsWith("i:")) {
+      if (focus || (!attack.findings && !attack.attack)) continue;
+      if (!shown.has(host)) {
+        const label = `${host.slice(2)}/`;
+        const shape: Shape = {
+          id: host, ...cardSize(label, "infrastructure"), partition: PARTITION.other,
+          data: { label, subtitle: "infrastructure", kind: "infra", layer: "other", severity: null, findings: 0, dynamicSql: 0, entry: false, dir: false, expanded: false, block: false },
+        };
+        result.shapes.push(shape);
+        shown.set(host, shape);
+      }
+      anchor = host;
+    }
+    if (!shown.has(anchor)) continue;
+    byAnchor.set(anchor, [...(byAnchor.get(anchor) ?? []), ...relevant]);
+  }
+  for (const [anchor, items] of byAnchor) {
+    const host = shown.get(anchor)!;
+    const id = `fg:${anchor}`;
+    const counts = new Map<Severity, number>();
+    let severity: Severity | null = null;
+    for (const item of items) {
+      counts.set(item.severity, (counts.get(item.severity) ?? 0) + 1);
+      severity = worst(severity, item.severity);
+    }
+    const subtitle = (["critical", "high", "medium", "low", "info"] as Severity[]).filter((name) => counts.get(name)).map((name) => `${counts.get(name)} ${name}`).join(" · ");
+    const label = `${items.length} finding${items.length === 1 ? "" : "s"}`;
+    const open = expanded.has(id);
+    if (host.data.kind === "infra") host.data.severity = worst(host.data.severity, severity);
+    result.shapes.push({
+      id, ...cardSize(label, subtitle), partition: host.partition, findings: items,
+      data: { label, subtitle, kind: "findings", layer: host.data.layer, severity, findings: items.length, dynamicSql: 0, entry: false, dir: true, expanded: open, block: false },
+    });
+    result.links.push({ id: `fl:${anchor}`, source: anchor, target: id, kind: "finding", label: "", count: items.length, dynamic: false, evidence: [] });
+    if (!open) continue;
+    const ordered = [...items].sort((left, right) => SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity]);
+    ordered.slice(0, FINDINGS_PER_GROUP).forEach((finding, position) => {
+      const child = `fd:${anchor}:${position}`;
+      const tools = [...new Set((finding.confirmations ?? []).map((item) => item.tool).concat(finding.tools ?? [finding.tool]))].join(", ");
+      const where = finding.lines && finding.lines.length > 1 ? `lines ${finding.lines.slice(0, 4).join(", ")}` : `line ${finding.location?.start_line ?? "?"}`;
+      const title = finding.title.length > 60 ? `${finding.title.slice(0, 57)}…` : finding.title;
+      const sub = `${tools} · ${where}`;
+      result.shapes.push({
+        id: child, ...cardSize(title, sub), partition: host.partition, finding,
+        data: { label: title, subtitle: sub, kind: "finding", layer: host.data.layer, severity: finding.severity, findings: 0, dynamicSql: 0, entry: false, dir: false, expanded: false, block: false },
+      });
+      result.links.push({ id: `fe:${child}`, source: id, target: child, kind: "finding", label: "", count: 1, dynamic: false, evidence: [] });
+    });
+  }
+}
+
 function buildStructure(
   map: ProjectMap,
   view: ViewName,
@@ -231,6 +359,8 @@ function buildStructure(
   filters: { unmatched: boolean; middleware: boolean; packages: boolean; services: boolean },
   index: FindingIndex,
   focus: string | null = null,
+  findings: Finding[] = [],
+  attack: AttackOptions = { findings: false, attack: false, min: "high" },
 ): { shapes: Shape[]; links: Link[] } {
   if (view === "architecture") {
     let nodes = map.architecture.nodes.filter((node) => {
@@ -239,6 +369,10 @@ function buildStructure(
       if (node.meta.service && !filters.services) return false;
       return true;
     });
+    const hosts = findingHosts(map, findings);
+    if (attack.attack) {
+      nodes = attackPathNodes(map, nodes, hosts, attack.min);
+    }
     if (focus) {
       const keep = neighbourhood(map.architecture.edges, focus);
       nodes = nodes.filter((node) => keep.has(node.id));
@@ -319,7 +453,9 @@ function buildStructure(
       }
       merged.set(key, { id: key, source, target, kind: edge.kind, label: grouped ? "" : edge.label, count: edge.count, dynamic, evidence: edge.evidence.slice(0, 5) });
     }
-    return { shapes: [...shapes, ...groupShapes.values()], links: [...merged.values()] };
+    const result = { shapes: [...shapes, ...groupShapes.values()], links: [...merged.values()] };
+    if (attack.findings || attack.attack) addFindingNodes(result, hosts, groupOf, expanded, attack, focus);
+    return result;
   }
 
   // Files view: folders collapse; a hidden node is drawn as its nearest visible folder.
@@ -508,6 +644,7 @@ function MapCanvas({ scanId, title, map, findings, overlay, onOverlay, onRebuild
       : new Set(),
   );
   const [filters, setFilters] = useState({ unmatched: true, middleware: false, packages: false, services: true });
+  const [attack, setAttack] = useState<AttackOptions>({ findings: true, attack: false, min: "high" });
   const [archExpanded, setArchExpanded] = useState<Set<string>>(() => new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -528,8 +665,9 @@ function MapCanvas({ scanId, title, map, findings, overlay, onOverlay, onRebuild
   const knownPaths = useMemo(() => new Set(map.files.nodes.filter((node) => node.path).map((node) => node.path as string)), [map]);
   const index = useMemo(() => indexFindings(findings, knownPaths), [findings, knownPaths]);
   const structure = useMemo(
-    () => buildStructure(map, view, view === "files" ? expanded : archExpanded, filters, index, view === "architecture" ? focus : null),
-    [map, view, expanded, archExpanded, filters, index, focus],
+    () =>
+      buildStructure(map, view, view === "files" ? expanded : archExpanded, filters, index, view === "architecture" ? focus : null, findings, attack),
+    [map, view, expanded, archExpanded, filters, index, focus, findings, attack],
   );
   const structureKey = useMemo(
     () => `${view}|${structure.shapes.map((shape) => shape.id).join(",")}|${structure.links.length}`,
@@ -603,7 +741,11 @@ function MapCanvas({ scanId, title, map, findings, overlay, onOverlay, onRebuild
         deletable: false,
         animated: link.dynamic,
         selected: selected?.type === "edge" && selected.id === link.id,
-        style: { stroke: link.dynamic ? "#f43f5e" : style.stroke, strokeWidth: link.dynamic ? 2.2 : style.width + Math.min(2, Math.log10(link.count + 1)) },
+        style: {
+          stroke: link.dynamic ? "#f43f5e" : style.stroke,
+          strokeWidth: link.dynamic ? 2.2 : style.width + Math.min(2, Math.log10(link.count + 1)),
+          ...(link.kind === "finding" ? { strokeDasharray: "4 3" } : {}),
+        },
         markerEnd: { type: MarkerType.ArrowClosed, color: link.dynamic ? "#f43f5e" : style.stroke, width: 14, height: 14 },
       };
     });
@@ -748,6 +890,22 @@ function MapCanvas({ scanId, title, map, findings, overlay, onOverlay, onRebuild
             <Toggle label="Unmatched calls" value={filters.unmatched} onChange={(value) => setFilters({ ...filters, unmatched: value })} />
             <Toggle label="Middleware" value={filters.middleware} onChange={(value) => setFilters({ ...filters, middleware: value })} />
             <Toggle label="Services" value={filters.services} onChange={(value) => setFilters({ ...filters, services: value })} />
+            <span className="h-5 w-px bg-ink-line" />
+            <Toggle label="Findings" value={attack.findings} onChange={(value) => setAttack({ ...attack, findings: value })} />
+            <Toggle label="Attack paths" value={attack.attack} onChange={(value) => setAttack({ ...attack, attack: value })} />
+            {attack.attack && (
+              <select
+                value={attack.min}
+                onChange={(event) => setAttack({ ...attack, min: event.target.value as Severity })}
+                aria-label="Lowest severity on attack paths"
+                className="h-8 rounded-md border border-ink-line bg-ink-bg px-2 text-xs text-ink-text"
+              >
+                <option value="critical">Critical</option>
+                <option value="high">High and above</option>
+                <option value="medium">Medium and above</option>
+                <option value="low">All</option>
+              </select>
+            )}
           </>
         ) : (
           <Toggle label="Packages" value={filters.packages} onChange={(value) => setFilters({ ...filters, packages: value })} />
@@ -817,6 +975,7 @@ function MapCanvas({ scanId, title, map, findings, overlay, onOverlay, onRebuild
                 <Legend color="bg-amber-300" label="ORM" />
                 <Legend color="bg-rose-400" label="database" />
                 <span className="text-rose-300">— query built from variables</span>
+                <Legend color="bg-orange-400" label="findings (double-click to open)" />
               </>
             ) : (
               <span>Double-click a folder to open it · {stats.files ?? 0} files · {stats.import_edges ?? 0} imports</span>
@@ -838,7 +997,11 @@ function MapCanvas({ scanId, title, map, findings, overlay, onOverlay, onRebuild
               {(map.stack.frameworks?.length ?? 0) > 0 && <p>Stack: {[...(map.stack.frameworks ?? []), ...(map.stack.datastores ?? [])].join(", ")}</p>}
             </div>
           )}
-          {selected?.type === "node" && (selectedShape || selectedBlock) && (
+          {selected?.type === "node" && selectedShape?.finding && <FindingNodePanel scanId={scanId} finding={selectedShape.finding} />}
+          {selected?.type === "node" && selectedShape?.findings && (
+            <FindingGroupPanel findings={selectedShape.findings} expanded={archExpanded.has(selected.id)} onToggle={() => toggleDir(selected.id)} />
+          )}
+          {selected?.type === "node" && !selectedShape?.finding && !selectedShape?.findings && (selectedShape || selectedBlock) && (
             <NodePanel
               key={selected.id}
               id={selected.id}
@@ -1007,6 +1170,55 @@ function NodePanel({ id, shape, block, label, note, onLabel, onNote, onToggleDir
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function FindingNodePanel({ scanId, finding }: { scanId: string; finding: Finding }) {
+  const tools = [...new Set((finding.confirmations ?? []).map((item) => item.tool).concat(finding.tools ?? [finding.tool]))];
+  return (
+    <div className="space-y-2.5">
+      <span className={cn("inline-block rounded px-1.5 py-0.5 font-mono text-[11px] uppercase", SEVERITY_TEXT[finding.severity])}>{finding.severity}</span>
+      <p className="text-sm font-medium leading-5 text-ink-text">{finding.title}</p>
+      <p className="font-mono text-[11px] text-ink-muted">
+        {finding.location?.path}:{finding.location?.start_line}
+        {finding.lines && finding.lines.length > 1 ? ` · lines ${finding.lines.join(", ")}` : ""}
+      </p>
+      <p className="text-ink-muted">
+        {tools.length > 1 ? `Confirmed by ${tools.length} tools: ` : "Reported by "}
+        <span className="text-ink-text/90">{tools.join(", ")}</span>
+      </p>
+      {(finding.cwe ?? []).length > 0 && <p className="font-mono text-[11px] text-ink-muted">{finding.cwe.join(", ")}</p>}
+      <FindingCode
+        key={`${finding.fingerprint}:${finding.correlation_key}`}
+        scanId={scanId}
+        finding={finding}
+        fallback={finding.snippet ? <Snippet code={finding.snippet} path={finding.location?.path ?? null} /> : null}
+      />
+      {finding.message && <p className="whitespace-pre-wrap break-words leading-5 text-ink-text/80">{finding.message.slice(0, 600)}</p>}
+    </div>
+  );
+}
+
+function FindingGroupPanel({ findings, expanded, onToggle }: { findings: Finding[]; expanded: boolean; onToggle: () => void }) {
+  const ordered = [...findings].sort((left, right) => SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity]);
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[11px] uppercase tracking-wide text-ink-muted">findings in this place</p>
+      <button type="button" onClick={onToggle} className="h-8 w-full rounded-md border border-ink-line text-ink-text hover:bg-white/5">
+        {expanded ? "Collapse findings" : "Show each finding on the map"}
+      </button>
+      <ul className="space-y-1">
+        {ordered.slice(0, 30).map((finding, index) => (
+          <li key={index} className="flex items-start gap-2">
+            <span className={cn("mt-0.5 shrink-0 rounded px-1 font-mono text-[10px] uppercase", SEVERITY_TEXT[finding.severity])}>{finding.severity.slice(0, 4)}</span>
+            <span className="text-ink-text/90">
+              {finding.title}
+              <span className="ml-1 font-mono text-[10.5px] text-ink-muted">:{finding.location?.start_line}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
