@@ -1,0 +1,35 @@
+name: brakeman
+module: sast
+binary: brakeman
+image: presidentbeef/brakeman:v6.2.2
+version: "6.2.2"
+container_binary: /usr/src/app/bin/brakeman
+timeout_sec: 1200
+network: false
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 256
+applies_to: ["*.rb", "Gemfile"]
+args:
+  - --force
+  - --quiet
+  - --no-pager
+  - --no-exit-on-error
+  - -f
+  - sarif
+  - -o
+  - "{output}"
+  - "{src}"
+output_filename: brakeman.sarif
+# 0: clean. 3: warnings found, and the SARIF file is already written.
+ok_exit_codes: [0, 3]
+# 4: Brakeman was pointed at a tree that is not a Ruby app even with --force.
+skip_exit_codes: [4]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cap_drop:
+  - ALL
+no_new_privileges: true

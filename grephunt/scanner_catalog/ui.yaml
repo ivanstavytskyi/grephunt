@@ -83,3 +83,19 @@ zizmor:
   group: iac
   languages: GitHub Actions workflows
   purpose: Supply-chain and misconfiguration audits for CI workflows (offline mode)
+brakeman:
+  group: code
+  languages: Ruby on Rails
+  purpose: Rails taint checks from request parameters to SQL, XSS, and command execution
+psalm:
+  group: code
+  languages: PHP
+  purpose: Psalm taint analysis from request input to SQL, command, and file sinks
+progpilot:
+  group: code
+  languages: PHP
+  purpose: Progpilot taint analysis from request input to XSS, SQL, and command sinks
+codeql:
+  group: code
+  languages: Python, JavaScript, TypeScript, Java, C#, Ruby, C/C++, Rust
+  purpose: CodeQL security-extended queries. Off by default; the first run downloads about 800 MB and needs several GB of memory.

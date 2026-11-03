@@ -14,6 +14,7 @@ from grephunt.scanner_catalog.descriptor import ToolDescriptor
 from grephunt.scanner_hooks.bearer import BearerHook
 from grephunt.scanner_hooks.dependencies import GrypeHook, OsvScannerHook
 from grephunt.scanner_hooks.generic import GenericHook
+from grephunt.scanner_hooks.progpilot import ProgpilotHook
 from grephunt.scanner_hooks.semgrep import SemgrepHook
 from grephunt.scanner_hooks.snyk import SnykHook
 from grephunt.scanner_hooks.trivy import TrivyHook
@@ -24,6 +25,7 @@ _HOOKS = {
     "bearer": BearerHook,
     "grype": GrypeHook,
     "osv-scanner": OsvScannerHook,
+    "progpilot": ProgpilotHook,
     "semgrep": SemgrepHook,
     "snyk-code": SnykHook,
     "snyk-open-source": SnykHook,

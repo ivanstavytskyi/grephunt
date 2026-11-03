@@ -1,0 +1,47 @@
+name: codeql
+module: sast
+binary: python3
+image: ubuntu:24.04
+version: "2.27.3"
+container_binary: /bin/bash
+timeout_sec: 3600
+network: false
+prepare_network: true
+# Prepare downloads the official Linux bundle (about 800 MB) and a relocatable
+# Python, both checked by hash. The scan itself is offline. Root is only so
+# apt can install curl into this image; the project directory is read-only.
+user: "0"
+cpus: "2"
+memory: 4g
+pids_limit: 1024
+applies_to: ["*.py", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.ts", "*.tsx", "*.rb", "*.java", "*.kt", "*.cs", "*.c", "*.cc", "*.cpp", "*.cxx", "*.rs"]
+args:
+  - -c
+  - >-
+    export HOME={out_dir}/codeql-home TMPDIR={out_dir}/codeql-tmp;
+    mkdir -p "$HOME" "$TMPDIR";
+    exec /opt/codeql/python/bin/python3 {catalog}/config/codeql_scan.py
+    --src {src} --out {output} --work {out_dir}/codeql-work
+    --codeql /opt/codeql/codeql/codeql
+output_filename: codeql.sarif
+ok_exit_codes: [0]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cache_volumes:
+  - name: grephunt-codeql
+    path: /opt/codeql
+prepare:
+  binary: /bin/bash
+  cache: grephunt-codeql
+  docker_only: true
+  network: true
+  timeout_sec: 1800
+  args:
+    - "{catalog}/config/codeql-prepare.sh"
+cap_drop: []
+no_new_privileges: false
+# Off until someone selects it. A default run would download the bundle and
+# can exhaust a small Docker VM.
+default_enabled: false

@@ -108,6 +108,10 @@ class Finding(BaseModel):
     """Every tool report folded into this finding. Two or more means independent confirmation."""
     lines: list[int] = Field(default_factory=list)
     """Every line in the file where this problem occurs, when it repeats (13, 21, 29). Empty for one place."""
+    copies: list[str] = Field(default_factory=list)
+    """Other files holding the same snippet (duplicate challenge files). Empty when this is the only file."""
+    ai_verdict: str | None = None
+    """confirmed, likely, or false_positive, from an optional AI triage pass. Never deletes the finding."""
     status: FindingStatus = FindingStatus.OPEN
     raw_ref: str | None = None
     help_uri: str | None = None

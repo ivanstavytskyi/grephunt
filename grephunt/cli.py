@@ -73,6 +73,60 @@ _MODEL_EXAMPLES = [
 ]
 
 
+def _load_bench_findings(path: Path):
+    """Findings from a scan: a findings.json (raw or {"findings": [...]}) or a single tool's SARIF."""
+    from grephunt.bench.score import load_findings
+
+    if path.suffix.lower() == ".sarif":
+        from grephunt.scan_pipeline.sarif import parse_sarif
+
+        tool = "semgrep" if "semgrep" in path.name.lower() else path.stem
+        return parse_sarif(path, tool=tool)
+    return load_findings(path)
+
+
+def _bench(args) -> int:
+    if not args.findings.is_file():
+        print(f"Findings file not found: {args.findings}")
+        return 2
+    if not args.expected.is_file():
+        print(f"Expected file not found: {args.expected}")
+        return 2
+
+    findings = _load_bench_findings(args.findings)
+    if not args.no_correlate:
+        # Fold every engine's report into one finding per problem, so a bug seen by
+        # two tools carries both in its confirmations. Without this the second-engine
+        # and confirmation measures cannot see agreement.
+        from grephunt.finding_model.correlation import correlate
+
+        findings = correlate(findings)
+
+    is_owasp = args.expected.suffix.lower() == ".csv"
+    if is_owasp:
+        from grephunt.bench.owasp import format_owasp, load_owasp_csv, score_owasp
+
+        version, tests = load_owasp_csv(args.expected)
+        result = score_owasp(findings, tests, version)
+        print(format_owasp(result))
+        if not args.no_analysis:
+            from grephunt.bench.analysis import format_analysis, outcomes
+
+            print(format_analysis(outcomes(findings, tests)))
+        recall = result.recall
+    else:
+        from grephunt.bench.score import format_score, load_expected, score_findings
+
+        name, cases, complete = load_expected(args.expected)
+        result = score_findings(findings, cases, name, complete=complete)
+        print(format_score(result))
+        recall = result.recall
+
+    if args.min_recall is not None and recall + 1e-9 < args.min_recall:
+        return 1
+    return 0
+
+
 def _models(action: str, scan_id: str | None) -> int:
     from grephunt.finding_model import embeddings
 
@@ -152,6 +206,12 @@ def main() -> None:
     project_map = sub.add_parser("map", help="build the project map (files, imports, architecture) without scanning")
     project_map.add_argument("project", help="path to the project")
     project_map.add_argument("-o", "--out", type=Path, default=Path("reports"))
+    bench = sub.add_parser("bench", help="score findings against known vulnerabilities (OWASP Benchmark CSV or expected.yaml)")
+    bench.add_argument("findings", type=Path, help="findings.json / .sarif from a scan")
+    bench.add_argument("expected", type=Path, help="OWASP Benchmark expectedresults CSV, or an expected.yaml with cases")
+    bench.add_argument("--no-correlate", action="store_true", help="score raw per-tool findings instead of folding them into one per problem first")
+    bench.add_argument("--no-analysis", action="store_true", help="only the base score, without the confirmation / triage / threshold measures")
+    bench.add_argument("--min-recall", type=float, default=None, help="exit 1 when recall is below this, from 0 to 1")
     models = sub.add_parser("models", help="sentence-embedding model for clustering findings by meaning")
     models.add_argument("action", choices=["download", "check"], help="download: fetch the model once; check: show how it groups findings")
     models.add_argument("--scan", help="scan id whose findings check compares (default: built-in examples)")
@@ -179,6 +239,9 @@ def main() -> None:
         print(f"Architecture: {len(built.architecture.nodes)} nodes, {len(built.architecture.edges)} edges")
         print(f"Map:   {written}")
         return
+
+    if args.cmd == "bench":
+        sys.exit(_bench(args))
 
     if args.cmd == "models":
         sys.exit(_models(args.action, args.scan))

@@ -1,0 +1,49 @@
+name: progpilot
+module: sast
+binary: php
+image: php:8.3.16-cli-bookworm
+version: "1.3.0"
+container_binary: php
+timeout_sec: 1800
+network: false
+prepare_network: true
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+applies_to: ["*.php", "*.phtml"]
+args:
+  - /opt/progpilot/progpilot.phar
+  - --configuration={catalog}/config/progpilot.yml
+  - "{src}"
+output_source: stdout
+output_filename: progpilot.sarif
+# 0: clean. 1: findings, and the SARIF is already on stdout.
+ok_exit_codes: [0, 1]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cache_volumes:
+  - name: grephunt-progpilot
+    path: /opt/progpilot
+prepare:
+  binary: php
+  cache: grephunt-progpilot
+  docker_only: true
+  network: true
+  timeout_sec: 180
+  args:
+    - -r
+    - |
+      $dest = '/opt/progpilot/progpilot.phar';
+      $expected = 'e95979fa4a562daffbfb66012f7fab2f4ff47692d16284337a8fc48d5247d203';
+      if (is_file($dest) && hash_file('sha256', $dest) === $expected) { exit(0); }
+      $url = 'https://github.com/designsecurity/progpilot/releases/download/v1.3.0/progpilot_v1.3.0.phar';
+      $data = file_get_contents($url);
+      if ($data === false) { fwrite(STDERR, "could not download Progpilot\n"); exit(1); }
+      if (hash('sha256', $data) !== $expected) { fwrite(STDERR, "Progpilot download hash mismatch\n"); exit(1); }
+      if (file_put_contents($dest, $data) === false) { fwrite(STDERR, "could not store Progpilot\n"); exit(1); }
+cap_drop:
+  - ALL
+no_new_privileges: true

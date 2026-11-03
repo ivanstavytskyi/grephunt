@@ -1,0 +1,53 @@
+name: psalm
+module: sast
+binary: php
+image: php:8.3.16-cli-bookworm
+version: "5.26.1"
+container_binary: php
+timeout_sec: 1800
+network: false
+prepare_network: true
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+applies_to: ["*.php", "*.phtml"]
+args:
+  - /opt/psalm/psalm.phar
+  - --config={catalog}/config/psalm.xml
+  - --taint-analysis
+  - --output-format=sarif
+  - --no-progress
+  - --no-cache
+  - --threads=1
+output_source: stdout
+output_filename: psalm.sarif
+# 0: clean. 1: Psalm found issues and still printed the report.
+ok_exit_codes: [0, 1]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cache_volumes:
+  - name: grephunt-psalm
+    path: /opt/psalm
+prepare:
+  binary: php
+  cache: grephunt-psalm
+  docker_only: true
+  network: true
+  timeout_sec: 180
+  args:
+    - -r
+    - |
+      $dest = '/opt/psalm/psalm.phar';
+      $expected = '7d68a927dd72d30ec90e574cc114dd44851d9c49e3855e3c33c2bdd021259d1a';
+      if (is_file($dest) && hash_file('sha256', $dest) === $expected) { exit(0); }
+      $url = 'https://github.com/vimeo/psalm/releases/download/5.26.1/psalm.phar';
+      $data = file_get_contents($url);
+      if ($data === false) { fwrite(STDERR, "could not download Psalm\n"); exit(1); }
+      if (hash('sha256', $data) !== $expected) { fwrite(STDERR, "Psalm download hash mismatch\n"); exit(1); }
+      if (file_put_contents($dest, $data) === false) { fwrite(STDERR, "could not store Psalm\n"); exit(1); }
+cap_drop:
+  - ALL
+no_new_privileges: true
