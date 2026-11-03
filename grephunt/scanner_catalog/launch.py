@@ -278,6 +278,7 @@ class ScannerTool:
             module=Module(self.descriptor.module),
             fallback_version=version,
             refine=self.hook.refine_finding,
+            trust_reported_version=self.descriptor.trust_reported_version,
         )
         parsed_version = next((item.tool_version for item in findings if item.tool_version), version)
         finished = TaskRun(

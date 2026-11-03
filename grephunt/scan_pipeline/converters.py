@@ -165,9 +165,85 @@ def cyclonedx_sbom(text: str, descriptor) -> dict:
     return SarifBuilder("Syft", descriptor.version, "https://github.com/anchore/syft").document()
 
 
+def _trufflehog_location(metadata: object) -> tuple[str, int | None]:
+    data = metadata.get("Data") if isinstance(metadata, dict) else None
+    if not isinstance(data, dict):
+        return "", None
+    for source in data.values():
+        if isinstance(source, dict):
+            path = source.get("file") or source.get("File") or ""
+            line = source.get("line") or source.get("Line")
+            return str(path), line if isinstance(line, int) else None
+    return "", None
+
+
+def trufflehog_jsonl(text: str, descriptor) -> dict:
+    """One JSON object per line. Raw, RawV2, and SecretParts hold the secret and are never copied."""
+    sarif = SarifBuilder("TruffleHog", descriptor.version, "https://github.com/trufflesecurity/trufflehog")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        item = json.loads(line)
+        if not isinstance(item, dict) or not item.get("DetectorName"):
+            continue
+        path, number = _trufflehog_location(item.get("SourceMetadata"))
+        detector = str(item["DetectorName"])
+        verified = bool(item.get("Verified"))
+        extra = item.get("ExtraData") if isinstance(item.get("ExtraData"), dict) else {}
+        kind = extra.get("token_type") or extra.get("Type")
+        title = f"{detector} {kind}" if kind else f"{detector} credential"
+        sarif.add(
+            rule_id=f"trufflehog.{detector.lower()}",
+            title=title,
+            message=f"{title} ({'verified live' if verified else 'not verified'})",
+            severity="critical" if verified else "high",
+            path=path,
+            start_line=number,
+            tags=["secret"],
+            description=item.get("DetectorDescription") if isinstance(item.get("DetectorDescription"), str) else None,
+            help_uri=extra.get("rotation_guide") if isinstance(extra.get("rotation_guide"), str) else None,
+            tool_severity="verified" if verified else "unverified",
+        )
+    return sarif.document()
+
+
+def secretlint_json(text: str, descriptor) -> dict:
+    """ESLint-style JSON. sourceContent is the whole file, secrets included, and is never copied."""
+    report = _load_json(text)
+    files = report if isinstance(report, list) else []
+    sarif = SarifBuilder("Secretlint", descriptor.version, "https://github.com/secretlint/secretlint")
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("filePath") or "")
+        for message in entry.get("messages") or []:
+            if not isinstance(message, dict) or not message.get("ruleId"):
+                continue
+            start = (message.get("loc") or {}).get("start") or {}
+            end = (message.get("loc") or {}).get("end") or {}
+            level = str(message.get("severity") or "error").lower()
+            sarif.add(
+                rule_id=str(message["ruleId"]),
+                title=str(message.get("messageId") or message["ruleId"]),
+                message=str(message.get("message") or message["ruleId"]),
+                severity="high" if level == "error" else "medium" if level == "warning" else "low",
+                path=path,
+                start_line=start.get("line") if isinstance(start.get("line"), int) else None,
+                end_line=end.get("line") if isinstance(end.get("line"), int) else None,
+                start_column=start["column"] + 1 if isinstance(start.get("column"), int) else None,
+                tags=["secret"],
+                help_uri=message.get("docsUrl") if isinstance(message.get("docsUrl"), str) else None,
+                tool_severity=level,
+            )
+    return sarif.document()
+
+
 CONVERTERS: dict[str, Callable[[str, object], dict]] = {
     "bandit-json": bandit_json,
     "cyclonedx-sbom": cyclonedx_sbom,
+    "secretlint-json": secretlint_json,
+    "trufflehog-jsonl": trufflehog_jsonl,
 }
 
 

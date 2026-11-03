@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from grephunt.finding_model.record import Module
+from grephunt.finding_model.record import Category, Module
 
 
 class CacheVolume(BaseModel):
@@ -71,6 +71,10 @@ class ToolDescriptor(BaseModel):
     applies_to: list[str] = Field(default_factory=list)
     """File name globs. The tool is skipped when no file in the project matches. Empty means always."""
     prepare: PrepareStep | None = None
+    category: Category | None = None
+    """Category for every finding of this tool, when its rules do not say (secret scanners)."""
+    trust_reported_version: bool = True
+    """False when the tool writes a fixed version into SARIF (Gitleaks and Betterleaks write v8.0.0)."""
     ok_exit_codes: list[int] | None = None
     """Exit codes of a finished scan. Any other code fails the task even if a report was written,
     because some tools write an empty report when they could not load their database."""

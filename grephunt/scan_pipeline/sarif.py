@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from grephunt.finding_model.redaction import mask_secrets
 from grephunt.finding_model.record import Category, Finding, Location, LocationKind, Module, Severity
 
 _CWE_RE = re.compile(r"CWE-\d+")
@@ -148,11 +149,12 @@ def parse_sarif(
     module: Module = Module.SAST,
     fallback_version: str | None = None,
     refine=None,
+    trust_reported_version: bool = True,
 ) -> list[Finding]:
     data = json.loads(sarif_path.read_text(encoding="utf-8"))
     findings: list[Finding] = []
     for run_index, run in enumerate(data.get("runs", [])):
-        version = _tool_version(run) or fallback_version
+        version = (_tool_version(run) if trust_reported_version else None) or fallback_version
         rules = {rule["id"]: rule for rule in run.get("tool", {}).get("driver", {}).get("rules", [])}
         for result_index, result in enumerate(run.get("results", [])):
             rule_id = result.get("ruleId", "unknown")
@@ -197,5 +199,13 @@ def parse_sarif(
             )
             if refine is not None:
                 finding = refine(finding, result, rule)
+            if finding.category is Category.SECRET:
+                finding = finding.model_copy(
+                    update={
+                        "snippet": mask_secrets(finding.snippet),
+                        "message": mask_secrets(finding.message) or "",
+                        "title": mask_secrets(finding.title) or finding.title,
+                    }
+                )
             findings.append(finding)
     return findings

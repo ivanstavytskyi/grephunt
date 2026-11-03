@@ -1,0 +1,32 @@
+name: kingfisher
+module: sast
+category: secret
+binary: kingfisher
+image: ghcr.io/mongodb/kingfisher:2.14.0
+version: "2.14.0"
+timeout_sec: 1800
+# --no-validate: the keys are not tried against the providers' APIs.
+network: false
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 256
+args:
+  - scan
+  - "{src}"
+  - --format
+  - sarif
+  - --output
+  - "{output}"
+  - --no-validate
+  - --no-update-check
+output_filename: kingfisher.sarif
+# 200: findings, 205: validated findings. Both are finished scans.
+ok_exit_codes: [0, 200, 205]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cap_drop:
+  - ALL
+no_new_privileges: true
