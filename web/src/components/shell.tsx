@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Crosshair, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { fetchScans } from "@/lib/api";
 import { onSameTabClick, scanIdFromPath, useNavigation } from "@/lib/nav";
@@ -33,11 +33,10 @@ export function Shell({ children }: { children: ReactNode }) {
         <a
           href="/"
           aria-label="GrepHunt, new scan"
-          className="flex items-center gap-2 px-4 py-4"
+          className="flex items-center px-4 py-4"
           onClick={(event) => onSameTabClick(event, navigate, "/")}
         >
-          <Crosshair className="size-4 text-signal" aria-hidden="true" />
-          <span className="text-sm font-semibold tracking-tight">GrepHunt</span>
+          <img src="/brand/grephunt-logo-dark.svg" alt="" className="h-6 w-auto" />
         </a>
         <p className="px-4 pb-2 text-[11px] uppercase tracking-wider text-ink-muted">Scans</p>
         {(scans.data?.length ?? 0) > 5 && (

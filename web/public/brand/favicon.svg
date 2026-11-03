@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -70 288 288" fill="none">
+<style>.tile{fill:#11141A}.mark{transform-origin:144px 74px;transform:scale(.78)}@media (prefers-color-scheme:dark){.tile{display:none}.mark{transform:none}}</style>
+<rect class="tile" x="0" y="-70" width="288" height="288" rx="56"/>
+<g class="mark">
+<path fill="#B8FB21" d="M69.13 48.40 L165.29 2.58 L122.92 48.40Z M129.29 48.40 L225.50 2.58 L183.67 48.40Z M188.42 48.40 L285.33 4.04 L242.75 48.40Z"/>
+<path fill="#FFFFFF" d="M79.58 48.40 L243.00 48.40 L256.17 58.58 L181.96 145.50 L2.13 145.50 L18.32 134.95 L172.01 134.95 L236.28 59.46Z M99.17 106.40 L157.29 78.00 L136.17 106.40Z"/>
+</g>
+</svg>
