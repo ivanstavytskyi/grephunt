@@ -7,7 +7,8 @@ import time
 import uuid
 from pathlib import Path
 
-from grephunt.finding_model.record import Module, TaskRun, TaskStatus
+from grephunt.finding_model.record import Category, Module, TaskRun, TaskStatus
+from grephunt.finding_model.redaction import redact_sarif_file, secret_result_refs
 from grephunt.scan_pipeline.image_archive import IMAGE_MOUNT
 from grephunt.scan_pipeline.events import EventHandler, EventType, ScanEvent, emit, scan_event_scope
 from grephunt.scan_pipeline.options import ScanOptions
@@ -280,6 +281,10 @@ class ScannerTool:
             refine=self.hook.refine_finding,
             trust_reported_version=self.descriptor.trust_reported_version,
         )
+        redact_sarif_file(sarif_path, secret_result_refs(findings))
+        if raw_path is not None and self.descriptor.category is Category.SECRET:
+            # The tool's own report holds the values. The converted, masked SARIF replaces it.
+            raw_path.unlink(missing_ok=True)
         parsed_version = next((item.tool_version for item in findings if item.tool_version), version)
         finished = TaskRun(
             tool=self.name,
