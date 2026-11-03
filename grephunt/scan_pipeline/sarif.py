@@ -26,6 +26,7 @@ _SECRET_WORDS = re.compile(
     re.IGNORECASE,
 )
 _MISCONFIG_TAGS = {"misconfiguration", "iac", "terraform", "dockerfile", "kubernetes", "cloudformation"}
+_DESCRIPTION_LIMIT = 8000
 
 
 def _severity(result: dict, rule: dict) -> tuple[Severity, str | None]:
@@ -64,6 +65,27 @@ def _title(rule: dict, rule_id: str) -> str:
     if not short or short.startswith("Semgrep Finding"):
         short = (rule.get("fullDescription") or {}).get("text", "") or rule_id
     return (short or rule_id)[:2000]
+
+
+def _description(rule: dict, message: str) -> str | None:
+    """Full rule or vulnerability description from the SARIF rule.
+
+    Order: fullDescription, then help (plain text, then markdown).
+    Returns None when nothing useful is there or the text repeats the message.
+    """
+    candidates = [
+        (rule.get("fullDescription") or {}).get("text"),
+        (rule.get("help") or {}).get("text"),
+        (rule.get("help") or {}).get("markdown"),
+    ]
+    for text in candidates:
+        if not isinstance(text, str):
+            continue
+        text = text.strip()
+        if not text or text == message.strip():
+            continue
+        return text[:_DESCRIPTION_LIMIT]
+    return None
 
 
 def _category(rule_id: str, rule: dict, tags: list[str], cwe: list[str], cve: list[str]) -> Category:
@@ -133,29 +155,30 @@ def parse_sarif(
             severity, original = _severity(result, rule)
             uri = location.get("artifactLocation", {}).get("uri", "")
             finding = Finding(
-                    module=module,
-                    tool=tool,
-                    tool_version=version,
-                    rule_id=rule_id,
-                    title=_title(rule, rule_id),
-                    message=message,
-                    severity=severity,
-                    severity_original=original,
-                    category=_category(rule_id, rule, tags, cwe, cve),
-                    location=Location(
-                        kind=LocationKind.FILE,
-                        path=_relative_path(uri, project_root),
-                        start_line=region.get("startLine"),
-                        end_line=region.get("endLine"),
-                    ),
-                    snippet=(region.get("snippet") or {}).get("text"),
-                    evidence="SARIF region" if region else "SARIF result",
-                    cwe=cwe,
-                    owasp=[tag for tag in tags if str(tag).startswith("OWASP")],
-                    cve=cve,
-                    help_uri=rule.get("helpUri"),
-                    raw_ref=f"{sarif_path.name}#/runs/{run_index}/results/{result_index}",
-                )
+                module=module,
+                tool=tool,
+                tool_version=version,
+                rule_id=rule_id,
+                title=_title(rule, rule_id),
+                message=message,
+                description=_description(rule, message),
+                severity=severity,
+                severity_original=original,
+                category=_category(rule_id, rule, tags, cwe, cve),
+                location=Location(
+                    kind=LocationKind.FILE,
+                    path=_relative_path(uri, project_root),
+                    start_line=region.get("startLine"),
+                    end_line=region.get("endLine"),
+                ),
+                snippet=(region.get("snippet") or {}).get("text"),
+                evidence="SARIF region" if region else "SARIF result",
+                cwe=cwe,
+                owasp=[tag for tag in tags if str(tag).startswith("OWASP")],
+                cve=cve,
+                help_uri=rule.get("helpUri"),
+                raw_ref=f"{sarif_path.name}#/runs/{run_index}/results/{result_index}",
+            )
             if refine is not None:
                 finding = refine(finding, result, rule)
             findings.append(finding)
