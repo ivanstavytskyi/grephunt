@@ -121,11 +121,24 @@ def read_source(target: Path, raw_path: str, line: int | None, end_line: int | N
     }
 
 
+_MAP_CACHE: dict[str, tuple[float, dict]] = {}
+
+
 def load_map(scan_dir: Path) -> dict:
+    """The scan's project map, cached until the file changes (findings are polled during a scan)."""
     path = scan_dir / "project_map.json"
-    if not path.is_file():
-        return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        mtime = path.stat().st_mtime
+    except OSError:
+        return {}
+    cached = _MAP_CACHE.get(str(path))
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    if len(_MAP_CACHE) > 16:
+        _MAP_CACHE.clear()
+    _MAP_CACHE[str(path)] = (mtime, data)
+    return data

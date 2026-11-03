@@ -354,7 +354,11 @@ def get_findings(scan_id: str) -> list[dict] | None:
             for item in findings
             if (item.fingerprint, item.correlation_key) not in dismissed
         ]
-        return [json.loads(item.body) for item in visible]
+        findings_out = [json.loads(item.body) for item in visible]
+    from grephunt.project_map.finding_context import attach_context
+    from grephunt.web_console.source_view import load_map
+
+    return attach_context(findings_out, load_map(_scan_dir(scan_id)))
 
 
 def dismiss_findings(scan_id: str, keys: list[tuple[str, str]]) -> int | None:

@@ -54,3 +54,23 @@ def test_relative_path_forms(tmp_path: Path):
     assert relative_path(tmp_path, "./a/b.py") == "a/b.py"
     assert relative_path(tmp_path, f"{tmp_path.resolve().as_posix()}/a/b.py") == "a/b.py"
     assert relative_path(tmp_path, "a\\b.py") == "a/b.py"
+
+
+def test_findings_carry_route_and_database_context(tmp_path: Path, monkeypatch):
+    import json
+
+    from grephunt.database.tables import FindingRow
+
+    client = _setup(tmp_path, monkeypatch, ROOT / "samples" / "vuln_flask")
+    with scan_service.session_factory()() as session:
+        for line, rule in ((17, "sqli"), (23, "cmdi"), (1, "header")):
+            body = {"location": {"path": "/src/app.py", "start_line": line}, "rule_id": rule, "fingerprint": rule, "correlation_key": rule}
+            session.add(FindingRow(scan_id="s1", fingerprint=rule, correlation_key=rule, severity="high", category="code", tool="semgrep", body=json.dumps(body)))
+        session.commit()
+    by_rule = {item["rule_id"]: item for item in client.get("/api/scans/s1/findings").json()}
+    sqli = by_rule["sqli"]["context"]
+    assert sqli["routes"][0]["label"] == "GET /user" and sqli["routes"][0]["params"] == ["query.id"]
+    assert sqli["database"] == {"target": "SQLite", "dynamic": True, "line": 17}
+    assert by_rule["cmdi"]["context"]["routes"][0]["label"] == "GET /ping"
+    assert "database" not in by_rule["cmdi"]["context"]
+    assert "context" not in by_rule["header"] or "routes" not in by_rule["header"]["context"]

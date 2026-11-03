@@ -1,99 +1,447 @@
+# GrepHunt bundled Semgrep rules (javascript). Applied in every scan, offline.
 rules:
-  - id: grephunt.javascript.angular.bypass-security-trust-html
-    languages: [javascript, typescript]
-    severity: ERROR
-    message: >-
-      bypassSecurityTrustHtml marks HTML as trusted and disables Angular's XSS sanitizer.
-      Bind the value as text, or sanitize it before trusting it.
-    metadata:
-      cwe:
-        - "CWE-79"
-      category: security
-      technology:
-        - angular
-    paths:
-      exclude:
-        - "*.spec.ts"
-        - "*.spec.js"
-        - "*.test.ts"
-        - "*.test.js"
-    pattern: $SANITIZER.bypassSecurityTrustHtml($VALUE)
+- id: grephunt.javascript.angular.bypass-security-trust-html
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: bypassSecurityTrustHtml marks HTML as trusted and disables Angular's XSS sanitizer. Bind the
+    value as text, or sanitize it before trusting it.
+  metadata:
+    cwe:
+    - CWE-79
+    category: security
+    technology:
+    - angular
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern: $SANITIZER.bypassSecurityTrustHtml($VALUE)
+- id: grephunt.javascript.nosql.where
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: MongoDB $where evaluates the query as JavaScript. Request data inside that expression lets
+    a caller change the query (NoSQL injection).
+  metadata:
+    cwe:
+    - CWE-943
+    category: security
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-regex: '\$where\s*:'
+- id: grephunt.javascript.xxe.entity-loading
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: XML parsing substitutes entities or loads the DTD (XML_PARSE_NOENT, XML_PARSE_DTDLOAD, noent:true,
+    or a filesystem entity provider). Untrusted XML can read local files (XXE).
+  metadata:
+    cwe:
+    - CWE-611
+    category: security
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+  pattern-either:
+  - pattern: $LIB.ParseOption.XML_PARSE_NOENT
+  - pattern: $LIB.ParseOption.XML_PARSE_DTDLOAD
+  - pattern: xmlRegisterFsInputProviders(...)
+  - pattern: '{ ..., noent: true, ... }
 
-  - id: grephunt.javascript.nosql.where
-    languages: [javascript, typescript]
-    severity: ERROR
-    message: >-
-      MongoDB $where evaluates the query as JavaScript. Request data inside that
-      expression lets a caller change the query (NoSQL injection).
-    metadata:
-      cwe:
-        - "CWE-943"
-      category: security
-    paths:
-      exclude:
-        - "*.spec.ts"
-        - "*.spec.js"
-        - "*.test.ts"
-        - "*.test.js"
-    pattern-regex: '\$where\s*:'
+      '
+- id: grephunt.javascript.zip-slip
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: An archive entry name is written to disk. Reject names that escape the destination directory
+    after normalization (zip slip).
+  metadata:
+    cwe:
+    - CWE-22
+    category: security
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+  pattern-either:
+  - pattern: '$NAME = $ENTRY.path
 
-  - id: grephunt.javascript.xxe.entity-loading
-    languages: [javascript, typescript]
-    severity: ERROR
-    message: >-
-      XML parsing substitutes entities or loads the DTD (XML_PARSE_NOENT, XML_PARSE_DTDLOAD,
-      noent:true, or a filesystem entity provider). Untrusted XML can read local files (XXE).
-    metadata:
-      cwe:
-        - "CWE-611"
-      category: security
-    paths:
-      exclude:
-        - "*.spec.ts"
-        - "*.spec.js"
-    pattern-either:
-      - pattern: $LIB.ParseOption.XML_PARSE_NOENT
-      - pattern: $LIB.ParseOption.XML_PARSE_DTDLOAD
-      - pattern: xmlRegisterFsInputProviders(...)
-      - pattern: |
-          { ..., noent: true, ... }
+      ...
 
-  - id: grephunt.javascript.zip-slip
-    languages: [javascript, typescript]
-    severity: ERROR
-    message: >-
-      An archive entry name is written to disk. Reject names that escape the destination
-      directory after normalization (zip slip).
-    metadata:
-      cwe:
-        - "CWE-22"
-      category: security
-    paths:
-      exclude:
-        - "*.spec.ts"
-        - "*.spec.js"
-    pattern-either:
-      - pattern: |
-          $NAME = $ENTRY.path
-          ...
-          fs.createWriteStream($PREFIX + $NAME)
-      - pattern: |
-          $NAME = $ENTRY.path
-          ...
-          path.resolve($PREFIX + $NAME)
+      fs.createWriteStream($PREFIX + $NAME)
 
-  - id: grephunt.javascript.yaml.unsafe-load
-    languages: [javascript, typescript]
-    severity: ERROR
-    message: >-
-      yaml.load expands aliases and custom types. Untrusted YAML can exhaust memory
-      (a YAML bomb). Parse with a safe schema.
-    metadata:
-      cwe:
-        - "CWE-776"
-      category: security
-    paths:
-      exclude:
-        - "*.spec.ts"
-        - "*.spec.js"
-    pattern-regex: 'yaml\.load\s*\('
+      '
+  - pattern: '$NAME = $ENTRY.path
+
+      ...
+
+      path.resolve($PREFIX + $NAME)
+
+      '
+- id: grephunt.javascript.yaml.unsafe-load
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: yaml.load expands aliases and custom types. Untrusted YAML can exhaust memory (a YAML bomb).
+    Parse with a safe schema.
+  metadata:
+    cwe:
+    - CWE-776
+    category: security
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+  pattern-regex: yaml\.load\s*\(
+- id: grephunt.javascript.express.sql-injection
+  mode: taint
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: Request data reaches a SQL query string. Pass values as replacements or bind parameters (sequelize.query(sql,
+    { replacements }), db.query(sql, [value])) instead of template strings or concatenation.
+  metadata:
+    cwe:
+    - CWE-89
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - express
+    - sequelize
+    - mysql
+    - pg
+    - sqlite3
+    - knex
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - pattern: $REQ.signedCookies
+      - pattern: $REQ.headers
+    - metavariable-regex:
+        metavariable: $REQ
+        regex: ^(req|request)$
+  pattern-sanitizers:
+  - pattern: parseInt(...)
+  - pattern: parseFloat(...)
+  - pattern: Number(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: $DB.query($QUERY, ...)
+      - pattern: $DB.raw($QUERY, ...)
+      - pattern: $DB.$queryRawUnsafe($QUERY, ...)
+      - pattern: $DB.$executeRawUnsafe($QUERY, ...)
+      - pattern: $DB.exec($QUERY, ...)
+      - pattern: $DB.run($QUERY, ...)
+    - focus-metavariable: $QUERY
+- id: grephunt.javascript.express.command-injection
+  mode: taint
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: Request data reaches a shell command. Use execFile or spawn with an argument list and no shell,
+    and check the value against an allowlist.
+  metadata:
+    cwe:
+    - CWE-78
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - express
+    - node
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - pattern: $REQ.signedCookies
+      - pattern: $REQ.headers
+    - metavariable-regex:
+        metavariable: $REQ
+        regex: ^(req|request)$
+  pattern-sanitizers:
+  - pattern: parseInt(...)
+  - pattern: parseFloat(...)
+  - pattern: Number(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: exec($CMD, ...)
+      - pattern: execSync($CMD, ...)
+      - pattern: $CP.exec($CMD, ...)
+      - pattern: $CP.execSync($CMD, ...)
+    - focus-metavariable: $CMD
+- id: grephunt.javascript.express.code-injection
+  mode: taint
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: Request data is evaluated as JavaScript. Parse it with JSON.parse or map it to fixed behavior
+    instead of running it.
+  metadata:
+    cwe:
+    - CWE-95
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - express
+    - node
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - pattern: $REQ.signedCookies
+      - pattern: $REQ.headers
+    - metavariable-regex:
+        metavariable: $REQ
+        regex: ^(req|request)$
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: eval($CODE)
+      - pattern: new Function(..., $CODE)
+      - pattern: vm.runInNewContext($CODE, ...)
+      - pattern: vm.runInThisContext($CODE, ...)
+      - pattern: $VM.runInContext($CODE, ...)
+    - focus-metavariable: $CODE
+- id: grephunt.javascript.express.path-traversal
+  mode: taint
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: Request data is used as a file path. Resolve it with path.resolve and check it starts with
+    the base folder, or use res.sendFile(name, { root }).
+  metadata:
+    cwe:
+    - CWE-22
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - express
+    - node
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - pattern: $REQ.signedCookies
+      - pattern: $REQ.headers
+    - metavariable-regex:
+        metavariable: $REQ
+        regex: ^(req|request)$
+  pattern-sanitizers:
+  - pattern: path.basename(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: fs.readFile($PATH, ...)
+      - pattern: fs.readFileSync($PATH, ...)
+      - pattern: fs.createReadStream($PATH, ...)
+      - pattern: fs.writeFile($PATH, ...)
+      - pattern: fs.writeFileSync($PATH, ...)
+      - pattern: fs.unlink($PATH, ...)
+      - pattern: $RES.sendFile($PATH)
+      - pattern: $RES.download($PATH, ...)
+    - focus-metavariable: $PATH
+- id: grephunt.javascript.express.ssrf
+  mode: taint
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: Request data decides which URL the server fetches. Allow only known hosts so the server cannot
+    be used to reach internal services or cloud metadata.
+  metadata:
+    cwe:
+    - CWE-918
+    owasp:
+    - A10:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - express
+    - node
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - pattern: $REQ.signedCookies
+      - pattern: $REQ.headers
+    - metavariable-regex:
+        metavariable: $REQ
+        regex: ^(req|request)$
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: fetch($URL, ...)
+      - pattern: axios.$METHOD($URL, ...)
+      - pattern: axios($URL, ...)
+      - pattern: request($URL, ...)
+      - pattern: request.get($URL, ...)
+      - pattern: http.get($URL, ...)
+      - pattern: https.get($URL, ...)
+      - pattern: needle.get($URL, ...)
+    - focus-metavariable: $URL
+- id: grephunt.javascript.express.open-redirect
+  mode: taint
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: Request data decides where the user is redirected. Redirect only to relative paths or to hosts
+    on an allowlist.
+  metadata:
+    cwe:
+    - CWE-601
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - express
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - pattern: $REQ.signedCookies
+      - pattern: $REQ.headers
+    - metavariable-regex:
+        metavariable: $REQ
+        regex: ^(req|request)$
+  pattern-sinks:
+  - patterns:
+    - pattern: $RES.redirect($URL)
+    - focus-metavariable: $URL
+- id: grephunt.javascript.nosql.operator-injection
+  mode: taint
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Request data is used directly as a MongoDB query or update. A JSON body like {"$ne": null}
+    changes the query (NoSQL injection). Cast fields to strings or validate the shape before querying.'
+  metadata:
+    cwe:
+    - CWE-943
+    owasp:
+    - A03:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - express
+    - mongodb
+    - mongoose
+    - marsdb
+  paths:
+    exclude:
+    - '*.spec.ts'
+    - '*.spec.js'
+    - '*.test.ts'
+    - '*.test.js'
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - pattern: $REQ.signedCookies
+      - pattern: $REQ.headers
+    - metavariable-regex:
+        metavariable: $REQ
+        regex: ^(req|request)$
+  pattern-sanitizers:
+  - pattern: String(...)
+  - pattern: $X.toString()
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: $COLL.find($QUERY, ...)
+      - pattern: $COLL.findOne($QUERY, ...)
+      - pattern: $COLL.update($QUERY, ...)
+      - pattern: $COLL.updateOne($QUERY, ...)
+      - pattern: $COLL.updateMany($QUERY, ...)
+      - pattern: $COLL.deleteMany($QUERY, ...)
+      - pattern: $COLL.remove($QUERY, ...)
+    - metavariable-regex:
+        metavariable: $COLL
+        regex: (?i).*(collection|model)$
+    - focus-metavariable: $QUERY

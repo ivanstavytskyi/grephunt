@@ -48,6 +48,7 @@ export type Finding = {
     port: number | null;
   };
   snippet: string | null;
+  context?: FindingContext;
   evidence: string | null;
   status: string;
   raw_ref: string | null;
@@ -123,4 +124,8 @@ export type ScanEvent = {
   message: string;
   tool: string | null;
   data: Record<string, unknown>;
+};
+export type FindingContext = {
+  routes?: { id: string; label: string; params: string[]; framework?: string | null }[];
+  database?: { target: string; dynamic: boolean; line: number };
 };

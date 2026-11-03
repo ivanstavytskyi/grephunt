@@ -133,6 +133,12 @@ export const FindingsTable = memo(function FindingsTable({
                 <p className="truncate" title={title}>
                   {title}
                 </p>
+                {finding.context?.routes?.[0] && (
+                  <p className="truncate font-mono text-[11px] leading-4 text-ink-muted" title="Route that reaches this code (project map)">
+                    {finding.context.routes[0].label}
+                    {finding.context.database?.dynamic && <span className="ml-1.5 text-rose-300">· query built from variables</span>}
+                  </p>
+                )}
               </div>
               <div className="px-3 py-2.5 font-mono text-xs text-ink-muted">{toolLabel(finding)}</div>
             </div>

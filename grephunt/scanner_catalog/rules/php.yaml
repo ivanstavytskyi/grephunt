@@ -1,0 +1,260 @@
+# GrepHunt bundled Semgrep rules (php). Applied in every scan, offline.
+rules:
+- id: grephunt.php.sql-injection
+  mode: taint
+  languages:
+  - php
+  severity: ERROR
+  message: Request data ($_GET, $_POST, $_REQUEST, $_COOKIE) reaches a SQL query. Use a prepared statement
+    with bound parameters (PDO::prepare, mysqli_prepare).
+  metadata:
+    cwe:
+    - CWE-89
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - php
+    - mysqli
+    - pdo
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sanitizers:
+  - pattern: intval(...)
+  - pattern: floatval(...)
+  - pattern: (int) $X
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: mysqli_query($LINK, $QUERY, ...)
+      - pattern: mysqli_multi_query($LINK, $QUERY)
+      - pattern: mysqli_real_query($LINK, $QUERY)
+      - pattern: mysql_query($QUERY, ...)
+      - pattern: pg_query($LINK, $QUERY)
+      - pattern: $DB->query($QUERY, ...)
+      - pattern: $DB->exec($QUERY)
+      - pattern: $DB->querySingle($QUERY, ...)
+      - pattern: $DB->multi_query($QUERY)
+    - focus-metavariable: $QUERY
+- id: grephunt.php.command-injection
+  mode: taint
+  languages:
+  - php
+  severity: ERROR
+  message: Request data reaches a shell command. Wrap each argument in escapeshellarg() or avoid the shell
+    and validate the value against an allowlist.
+  metadata:
+    cwe:
+    - CWE-78
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - php
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sanitizers:
+  - pattern: escapeshellarg(...)
+  - pattern: intval(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: system($CMD, ...)
+      - pattern: exec($CMD, ...)
+      - pattern: shell_exec($CMD)
+      - pattern: passthru($CMD, ...)
+      - pattern: popen($CMD, $MODE)
+      - pattern: proc_open($CMD, ...)
+    - focus-metavariable: $CMD
+- id: grephunt.php.file-inclusion
+  mode: taint
+  languages:
+  - php
+  severity: ERROR
+  message: Request data decides which file is included. An attacker can include local files or, with allow_url_include,
+    remote code. Map the value to a fixed list of files.
+  metadata:
+    cwe:
+    - CWE-98
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - php
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sanitizers:
+  - pattern: basename(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: include($FILE);
+      - pattern: include_once($FILE);
+      - pattern: require($FILE);
+      - pattern: require_once($FILE);
+    - focus-metavariable: $FILE
+- id: grephunt.php.code-injection
+  mode: taint
+  languages:
+  - php
+  severity: ERROR
+  message: Request data is evaluated as PHP code. Never pass input to eval, assert, or create_function.
+  metadata:
+    cwe:
+    - CWE-95
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - php
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: eval($CODE)
+      - pattern: assert($CODE, ...)
+      - pattern: create_function($ARGS, $CODE)
+    - focus-metavariable: $CODE
+- id: grephunt.php.unsafe-deserialization
+  mode: taint
+  languages:
+  - php
+  severity: ERROR
+  message: Request data is passed to unserialize(). Crafted objects can trigger magic methods and run
+    code. Use json_decode, or unserialize with allowed_classes => false.
+  metadata:
+    cwe:
+    - CWE-502
+    owasp:
+    - A08:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - php
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sinks:
+  - patterns:
+    - pattern: unserialize($DATA, ...)
+    - focus-metavariable: $DATA
+- id: grephunt.php.reflected-xss
+  mode: taint
+  languages:
+  - php
+  severity: WARNING
+  message: Request data is written into the HTML response without escaping. Escape it with htmlspecialchars($value,
+    ENT_QUOTES, 'UTF-8') where it is printed.
+  metadata:
+    cwe:
+    - CWE-79
+    owasp:
+    - A03:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - php
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sanitizers:
+  - pattern: htmlspecialchars(...)
+  - pattern: htmlentities(...)
+  - pattern: intval(...)
+  - pattern: json_encode(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: echo $OUT;
+      - pattern: print($OUT);
+      - pattern: printf($OUT, ...)
+    - focus-metavariable: $OUT
+- id: grephunt.php.ssrf-or-file-read
+  mode: taint
+  languages:
+  - php
+  severity: WARNING
+  message: Request data decides which URL or file is read. With a URL the server can be made to call internal
+    services (SSRF); with a path it reads local files. Allow only known hosts or file names.
+  metadata:
+    cwe:
+    - CWE-918
+    - CWE-22
+    owasp:
+    - A10:2021
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - php
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sanitizers:
+  - pattern: basename(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: file_get_contents($TARGET, ...)
+      - pattern: fopen($TARGET, ...)
+      - pattern: readfile($TARGET, ...)
+      - pattern: file($TARGET, ...)
+      - pattern: curl_init($TARGET)
+      - pattern: curl_setopt($HANDLE, CURLOPT_URL, $TARGET)
+    - focus-metavariable: $TARGET
+- id: grephunt.php.open-redirect
+  mode: taint
+  languages:
+  - php
+  severity: WARNING
+  message: Request data is placed in a Location header. Redirect only to relative paths or to hosts on
+    an allowlist.
+  metadata:
+    cwe:
+    - CWE-601
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - php
+  pattern-sources:
+  - pattern: $_GET
+  - pattern: $_POST
+  - pattern: $_REQUEST
+  - pattern: $_COOKIE
+  - pattern: $_FILES
+  pattern-sinks:
+  - patterns:
+    - pattern: header($HEADER, ...)
+    - focus-metavariable: $HEADER

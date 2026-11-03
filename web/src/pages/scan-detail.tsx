@@ -447,6 +447,30 @@ function ScanClock({
   );
 }
 
+function FindingMapContext({ finding }: { finding: Finding }) {
+  const context = finding.context;
+  if (!context?.routes?.length && !context?.database) return null;
+  return (
+    <div className="space-y-1.5 rounded-md border border-ink-line bg-black/20 px-3 py-2 text-xs">
+      <p className="text-[11px] uppercase tracking-wide text-ink-muted">From the project map</p>
+      {context.routes?.map((route) => (
+        <div key={route.id} className="flex flex-wrap items-center gap-1.5">
+          <span className="rounded bg-violet-500/15 px-1.5 py-0.5 font-mono text-[11px] text-violet-200 ring-1 ring-inset ring-violet-500/30">{route.label}</span>
+          {route.params.map((param) => (
+            <span key={param} className="rounded bg-sky-500/15 px-1.5 py-0.5 font-mono text-[11px] text-sky-200 ring-1 ring-inset ring-sky-500/30">{param}</span>
+          ))}
+        </div>
+      ))}
+      {context.database && (
+        <p className={context.database.dynamic ? "text-rose-200" : "text-ink-text/80"}>
+          Database call to {context.database.target} on line {context.database.line}
+          {context.database.dynamic ? ": the query is built from variables, which confirms the finding." : "."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function FindingDetail({ scanId, finding }: { scanId: string; finding: Finding }) {
   const cwe = finding.cwe ?? [];
   const cve = finding.cve ?? [];
@@ -457,6 +481,7 @@ function FindingDetail({ scanId, finding }: { scanId: string; finding: Finding }
       {finding.location && (
         <p className="font-mono text-xs text-ink-muted">{locationLabel(finding.location)}</p>
       )}
+      <FindingMapContext finding={finding} />
       <FindingCode
         key={`${finding.fingerprint}:${finding.correlation_key}`}
         scanId={scanId}
