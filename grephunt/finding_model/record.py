@@ -85,6 +85,7 @@ class Finding(BaseModel):
     rule_id: str
     title: str
     message: str = ""
+    description: str | None = None
     severity: Severity
     severity_original: str | None = None
     cwe: list[str] = Field(default_factory=list)
