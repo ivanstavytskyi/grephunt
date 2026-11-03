@@ -194,6 +194,8 @@ class GenericHook:
         sarif_path.write_text(json.dumps(sarif, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def refine_finding(self, finding: Finding, result: dict, rule: dict) -> Finding:
+        if self.descriptor.category is not None and finding.category is not self.descriptor.category:
+            finding = finding.model_copy(update={"category": self.descriptor.category})
         prop = self.descriptor.severity_property
         if prop:
             value = (result.get("properties") or {}).get(prop) or (rule.get("properties") or {}).get(prop)

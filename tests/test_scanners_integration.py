@@ -160,3 +160,22 @@ def test_image_tar_is_scanned_by_image_capable_scanners(tmp_path: Path):
         assert any((item.package or "").lower() == "flask" for item in result.findings), name
     sbom = asyncio.run(run_scan(image, tmp_path / "syft", [tools["syft"]], options))
     assert sbom.runs[0].status.value == "success", sbom.runs[0].error
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_secret_scanners_find_the_fake_github_token(tmp_path: Path):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from secret_fixture import fake_tokens, secret_project
+
+    project = secret_project(tmp_path / "project")
+    tools = load_tools()
+    options = ScanOptions(excludes=[], use_docker=True)
+    token = fake_tokens()["github"]
+    for name in ("gitleaks", "betterleaks", "trufflehog", "kingfisher", "secretlint"):
+        result = asyncio.run(run_scan(project, tmp_path / name, [tools[name]], options))
+        assert result.runs[0].status.value == "success", (name, result.runs[0].error)
+        hits = [item for item in result.findings if item.location.path == "config.py" and item.location.start_line == 2]
+        assert hits, name
+        assert all(token not in (item.snippet or "") + item.message for item in result.findings), name
