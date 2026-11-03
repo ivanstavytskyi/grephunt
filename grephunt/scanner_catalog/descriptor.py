@@ -1,7 +1,9 @@
 """YAML descriptor schema. The core reads it and does not know which scanner it is."""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from grephunt.finding_model.record import Module
 
@@ -10,13 +12,35 @@ class CacheVolume(BaseModel):
     name: str
     path: str
     read_only: bool = False
-    """The scan only reads it. A prepare step on the host fills it."""
+    """The scan only reads it. A prepare step fills it."""
+
+
+class PrepareStep(BaseModel):
+    """A run before the scan that fills a cache: a vulnerability database, a rule pack, a tool install.
+
+    It runs in the scanner image with the cache volumes writable. A marker in
+    the cache records the run, so later scans skip it until ttl_hours passes.
+    """
+
+    args: list[str]
+    binary: str | None = None
+    """Entrypoint for this step. Defaults to the scan entrypoint."""
+    cache: str
+    """Name of the cache volume that holds the marker."""
+    network: bool = True
+    ttl_hours: int | None = None
+    """Refresh period. None means the data never goes stale (a pinned install)."""
+    docker_only: bool = False
+    """Skip in --local mode, where the tool and its data are already installed."""
+    timeout_sec: int = 900
 
 
 class ToolDescriptor(BaseModel):
     name: str
     module: Module = Module.SAST
     binary: str
+    container_binary: str | None = None
+    """Entrypoint in the image when it differs from the binary name on a local machine."""
     image: str
     version: str
     timeout_sec: int = 1200
@@ -31,6 +55,19 @@ class ToolDescriptor(BaseModel):
     """The file the tool writes when it cannot write SARIF itself. The hook converts it to output_filename."""
     rules_version: str | None = None
     """Pinned version of a rule pack that the hook downloads before the scan."""
+    args: list[str] | None = None
+    """Argument template for tools without a Python hook.
+
+    Placeholders: {src} project, {output} the file the tool writes, {out_dir},
+    {cache:NAME} a cache volume, {catalog} this directory (read-only).
+    """
+    output_source: Literal["file", "stdout"] = "file"
+    """stdout: the core saves the tool output to the file instead of the tool."""
+    output_format: str = "sarif"
+    """sarif, or the name of a converter in scan_pipeline/converters.py."""
+    applies_to: list[str] = Field(default_factory=list)
+    """File name globs. The tool is skipped when no file in the project matches. Empty means always."""
+    prepare: PrepareStep | None = None
     target_mount: str = "/src"
     output_mount: str = "/out"
     cache_volumes: list[CacheVolume] = Field(default_factory=list)
@@ -45,6 +82,19 @@ class ToolDescriptor(BaseModel):
         if not tag or tag.startswith("latest"):
             raise ValueError(f"image {value} must be pinned to a version tag, not latest")
         return value
+
+    @model_validator(mode="after")
+    def converted_output_has_a_raw_file(self) -> "ToolDescriptor":
+        from grephunt.scan_pipeline.converters import CONVERTERS
+
+        if self.output_format != "sarif" and self.output_format not in CONVERTERS:
+            raise ValueError(f"{self.name}: unknown output_format {self.output_format}")
+        if self.output_format != "sarif" and not self.raw_output_filename:
+            raise ValueError(f"{self.name}: output_format {self.output_format} needs raw_output_filename")
+        names = {volume.name for volume in self.cache_volumes}
+        if self.prepare is not None and self.prepare.cache not in names:
+            raise ValueError(f"{self.name}: prepare.cache {self.prepare.cache} is not in cache_volumes")
+        return self
 
     @field_validator("version")
     @classmethod

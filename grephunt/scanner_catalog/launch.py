@@ -165,7 +165,7 @@ class ScannerTool:
             binds.extend(cache_binds(self.descriptor))
             request = RunRequest(
                 image=self.descriptor.image,
-                binary=self.descriptor.binary,
+                binary=self.descriptor.container_binary or self.descriptor.binary,
                 args=self.hook.build_args(self.descriptor, src, output, options, True),
                 container_name=container_name,
                 network=network,
@@ -226,6 +226,10 @@ class ScannerTool:
                 tool=self.name, status=TaskStatus.TIMEOUT, duration_sec=duration,
                 tool_version=version, image=self.descriptor.image, error=outcome.error,
             )
+        if self.descriptor.output_source == "stdout" and outcome.stdout.strip():
+            # Tools that print the report exit non-zero when they find something. The report still counts.
+            (raw_path or sarif_path).write_text(outcome.stdout, encoding="utf-8")
+
         convert = getattr(self.hook, "convert_output", None)
         if convert is not None and raw_path is not None and raw_path.exists():
             try:

@@ -93,3 +93,18 @@ def test_bearer_runs_offline_with_the_pinned_rule_pack(tmp_path: Path):
         run_scan(ROOT / "samples" / "no_manifest", tmp_path / "none", [tool], options)
     )
     assert skipped.runs[0].status.value == "skipped"
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_bandit_installs_from_the_lock_file_and_scans_offline(tmp_path: Path):
+    tool = load_tools()["bandit"]
+    options = ScanOptions(excludes=[], use_docker=True)
+    hit = asyncio.run(run_scan(ROOT / "samples" / "vuln_flask", tmp_path / "vuln", [tool], options))
+    assert hit.runs[0].status.value == "success", hit.runs[0].error
+    found = {item.rule_id for item in hit.findings}
+    assert {"B602", "B301", "B307", "B608"} <= found
+    assert all(item.location.path == "app.py" for item in hit.findings)
+
+    clean = asyncio.run(run_scan(ROOT / "samples" / "clean_flask", tmp_path / "clean", [tool], options))
+    assert clean.runs[0].status.value == "success", clean.runs[0].error
+    assert clean.findings == []

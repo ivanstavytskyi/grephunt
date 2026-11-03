@@ -15,7 +15,7 @@ def test_tools_and_missing_path(tmp_path: Path, monkeypatch):
     client = TestClient(app)
     tools = client.get("/api/tools")
     assert tools.status_code == 200
-    assert {item["name"] for item in tools.json()} == {"bearer", "semgrep", "trivy"}
+    assert {"bandit", "bearer", "semgrep", "trivy"} <= {item["name"] for item in tools.json()}
     assert all(item["version"] != "latest" for item in tools.json())
 
     missing = client.post("/api/scans", data={"path": str(tmp_path / "nope"), "scanners": "semgrep"})

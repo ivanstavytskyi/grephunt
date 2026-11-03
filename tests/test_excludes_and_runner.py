@@ -33,7 +33,7 @@ def test_ignore_file(tmp_path: Path):
 
 def test_descriptors_pin_versions_and_trivy_scan_is_offline():
     tools = load_tools()
-    assert set(tools) == {"bearer", "semgrep", "trivy"}
+    assert {"bandit", "bearer", "semgrep", "trivy"} <= set(tools)
     assert tools["semgrep"].descriptor.version == "1.180.0"
     assert not tools["semgrep"].descriptor.image.endswith(":latest")
     assert tools["trivy"].descriptor.network is False
