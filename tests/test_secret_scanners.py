@@ -173,3 +173,32 @@ def test_arguments_do_not_verify_keys_or_print_them():
         trufflehog.descriptor, "/image/image.tar", "/out/trufflehog.sarif", ScanOptions(target_kind="image"), True
     )
     assert image[:3] == ["docker", "--image", "file:///image/image.tar"]
+
+
+def test_reports_on_disk_do_not_keep_the_secret(tmp_path: Path, monkeypatch):
+    import asyncio
+
+    from grephunt.execution.request import RunOutcome
+    from grephunt.scan_pipeline.pipeline import run_scan
+    from grephunt.scanner_catalog import launch
+
+    tools = load_tools()
+    monkeypatch.setattr(launch, "resolve_binary", lambda name: f"/usr/bin/{name}")
+
+    async def fake_run(self, request):
+        if "--output" in request.args:  # kingfisher
+            Path(request.args[request.args.index("--output") + 1]).write_text(_restore("kingfisher.sarif"), encoding="utf-8")
+            return RunOutcome(returncode=200)
+        return RunOutcome(returncode=0, stdout=_restore("trufflehog.jsonl"))  # trufflehog prints JSON lines
+
+    monkeypatch.setattr(launch.LocalRunner, "run", fake_run)
+    out = tmp_path / "out"
+    result = asyncio.run(
+        run_scan(ROOT / "samples" / "vuln_flask", out, [tools["kingfisher"], tools["trufflehog"]], ScanOptions(excludes=[], use_docker=False))
+    )
+    assert {run.status.value for run in result.runs} == {"success"}, [run.error for run in result.runs]
+    assert not (out / "trufflehog.jsonl").exists()
+    for report in ("kingfisher.sarif", "trufflehog.sarif", "merged.sarif"):
+        text = (out / report).read_text(encoding="utf-8")
+        leaked = [key for key, value in fake_tokens().items() if value in text]
+        assert not leaked, (report, leaked)
