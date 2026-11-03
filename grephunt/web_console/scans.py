@@ -397,7 +397,47 @@ def get_findings(scan_id: str) -> list[dict] | None:
         findings_out = _correlate_live(findings_out, database_anchors(project_map) if project_map else {})
     from grephunt.finding_model.exploitability import attach_exploitability
 
+    verdicts = load_verdicts(scan_id)
+    for finding in findings_out:
+        found = verdicts.get(str(finding.get("fingerprint") or ""))
+        if found:
+            finding["ai_verdict"] = found.get("verdict")
+            finding["ai_reason"] = found.get("reason") or ""
     return attach_exploitability(attach_context(findings_out, project_map))
+
+
+def _verdicts_path(scan_id: str) -> Path:
+    return DATA_DIR / "scans" / scan_id / "verdicts.json"
+
+
+def load_verdicts(scan_id: str) -> dict[str, dict]:
+    """AI triage verdicts for one scan: {fingerprint: {"verdict", "reason"}}."""
+    path = _verdicts_path(scan_id)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(key): value for key, value in data.items() if isinstance(value, dict)} if isinstance(data, dict) else {}
+
+
+def save_verdicts(scan_id: str, verdicts: list[dict]) -> bool:
+    """Merge AI verdicts into the scan. Returns False when the scan does not exist."""
+    directory = DATA_DIR / "scans" / scan_id
+    if not directory.is_dir():
+        return False
+    current = load_verdicts(scan_id)
+    for item in verdicts:
+        current[str(item["fingerprint"])] = {"verdict": item["verdict"], "reason": item.get("reason") or ""}
+    _verdicts_path(scan_id).write_text(json.dumps(current, ensure_ascii=False, indent=1), encoding="utf-8")
+    return True
+
+
+def clear_verdicts(scan_id: str) -> None:
+    path = _verdicts_path(scan_id)
+    if path.is_file():
+        path.unlink()
 
 
 def _correlate_live(bodies: list[dict], anchors: dict[str, set[int]]) -> list[dict]:

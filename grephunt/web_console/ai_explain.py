@@ -616,3 +616,74 @@ def explain_scan_report(provider: str, api_key: str, model: str, scan: dict, fin
     }
     text = _SCAN_REPORT_PROMPT + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return _call(provider, api_key, model, text, timeout_sec=_scan_report_timeout(len(included)))
+
+_TRIAGE_PROMPT = """You are triaging security findings. Decide if each one is a real issue in the shown code.
+Reply with a JSON array only, no markdown. Each element:
+{"id": "F-001", "verdict": "confirmed" | "likely" | "false_positive", "reason": "one sentence citing the file"}
+confirmed: the snippet shows a bug and the input can come from outside the program, with no sanitizer in view.
+likely: the pattern is dangerous but the snippet does not show that an attacker controls the input.
+false_positive: a test, a comment, a safe API, generated code, or a copied challenge file rather than the running application.
+Use the map context when given: a route that reaches the code, and whether a query is built from variables.
+Do not write exploit code, payloads, or attack steps. Do not invent files.
+
+Findings:
+"""
+
+TRIAGE_BATCH = 24
+
+
+def _json_array(text: str) -> list:
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        raw = raw.rsplit("```", 1)[0]
+    start, end = raw.find("["), raw.rfind("]")
+    if start == -1 or end <= start:
+        raise ValueError("the model did not return a JSON array")
+    parsed = json.loads(raw[start : end + 1])
+    if not isinstance(parsed, list):
+        raise ValueError("the model did not return a JSON array")
+    return parsed
+
+
+def triage_findings(provider: str, api_key: str, model: str, findings: list) -> list[dict]:
+    """Ask the model for a verdict per finding (one batch). Findings are never deleted."""
+    rows = []
+    for index, item in enumerate(findings[:TRIAGE_BATCH], start=1):
+        if not isinstance(item, dict) or not item.get("fingerprint"):
+            continue
+        location = item.get("location") if isinstance(item.get("location"), dict) else {}
+        context = item.get("context") if isinstance(item.get("context"), dict) else {}
+        snippet = item.get("snippet") if isinstance(item.get("snippet"), str) else ""
+        rows.append(
+            {
+                "id": f"F-{index:03d}",
+                "fingerprint": str(item["fingerprint"]),
+                "title": item.get("title"),
+                "severity": item.get("severity"),
+                "category": item.get("category"),
+                "rule_id": item.get("rule_id"),
+                "path": location.get("path"),
+                "line": location.get("start_line"),
+                "package": item.get("package"),
+                "cve": (item.get("cve") or [])[:4],
+                "routes": [route.get("label") for route in (context.get("routes") or [])[:3] if isinstance(route, dict)],
+                "query_from_variables": bool((context.get("database") or {}).get("dynamic")) if isinstance(context.get("database"), dict) else False,
+                "message": mask_secrets(str(item.get("message") or ""))[:300],
+                "snippet": mask_secrets(snippet)[:500],
+            }
+        )
+    if not rows:
+        raise ValueError("findings list is missing")
+    answer = _call(provider, api_key, model, _TRIAGE_PROMPT + json.dumps(rows, ensure_ascii=False), timeout_sec=90)
+    by_id = {row["id"]: row["fingerprint"] for row in rows}
+    verdicts = []
+    for item in _json_array(answer):
+        if not isinstance(item, dict):
+            continue
+        fingerprint = by_id.get(str(item.get("id") or ""))
+        verdict = str(item.get("verdict") or "")
+        if not fingerprint or verdict not in {"confirmed", "likely", "false_positive"}:
+            continue
+        verdicts.append({"fingerprint": fingerprint, "verdict": verdict, "reason": str(item.get("reason") or "")[:400]})
+    return verdicts
