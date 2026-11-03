@@ -129,3 +129,16 @@ def test_devskim_installs_from_nuget_and_scans_offline(tmp_path: Path):
     hit = asyncio.run(run_scan(ROOT / "samples" / "vuln_go", tmp_path / "vuln", [tool], options))
     assert hit.runs[0].status.value == "success", hit.runs[0].error
     assert any(item.location.path == "main.go" for item in hit.findings)
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_dependency_scanners_find_the_old_flask(tmp_path: Path):
+    tools = load_tools()
+    options = ScanOptions(excludes=[], use_docker=True)
+    for name in ("grype", "osv-scanner"):
+        hit = asyncio.run(run_scan(ROOT / "samples" / "vuln_flask", tmp_path / name, [tools[name]], options))
+        assert hit.runs[0].status.value == "success", (name, hit.runs[0].error)
+        assert any((item.package or "").lower() == "flask" and item.cve for item in hit.findings), name
+    sbom = asyncio.run(run_scan(ROOT / "samples" / "vuln_flask", tmp_path / "syft", [tools["syft"]], options))
+    assert sbom.runs[0].status.value == "success", sbom.runs[0].error
+    assert (tmp_path / "syft" / "syft.cdx.json").is_file()

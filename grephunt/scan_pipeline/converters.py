@@ -156,8 +156,18 @@ def bandit_json(text: str, descriptor) -> dict:
     return sarif.document()
 
 
+def cyclonedx_sbom(text: str, descriptor) -> dict:
+    """An SBOM is an inventory, not a list of problems. The SBOM file stays in the scan directory;
+    the SARIF for it is empty."""
+    document = _load_json(text)
+    if not isinstance(document, dict) or document.get("bomFormat") != "CycloneDX":
+        raise ValueError("the SBOM is not CycloneDX JSON")
+    return SarifBuilder("Syft", descriptor.version, "https://github.com/anchore/syft").document()
+
+
 CONVERTERS: dict[str, Callable[[str, object], dict]] = {
     "bandit-json": bandit_json,
+    "cyclonedx-sbom": cyclonedx_sbom,
 }
 
 
