@@ -29,6 +29,7 @@ from grephunt.web_console.ai_explain import (
     explain_finding,
     explain_scan_report,
     poc_finding,
+    triage_findings,
 )
 from grephunt.web_console.github_source import download_github_zip
 from grephunt.web_console.uploads import safe_extract
@@ -37,6 +38,7 @@ from grephunt.web_console.scans import (
     create_scan,
     dismiss_findings,
     get_events,
+    clear_verdicts,
     get_findings,
     get_map_overlay,
     get_project_map,
@@ -46,6 +48,7 @@ from grephunt.web_console.scans import (
     list_tools,
     rebuild_project_map,
     save_map_overlay,
+    save_verdicts,
     session_factory,
 )
 from grephunt.config import DATA_DIR, WEB_DIST, max_image_upload_bytes, max_upload_bytes, upload_limit_label
@@ -647,6 +650,33 @@ def ai_explain(body: dict = Body()) -> dict:
     except (ValueError, ProviderError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"text": text}
+
+
+@app.post("/api/ai/prioritize")
+def ai_prioritize(body: dict = Body()) -> dict:
+    """One batch of AI triage verdicts; the UI sends the findings in batches and shows progress."""
+    findings = body.get("findings")
+    scan_id = str(body.get("scan_id") or "")
+    if not isinstance(findings, list) or not findings:
+        raise HTTPException(status_code=400, detail="findings list is missing")
+    try:
+        verdicts = triage_findings(
+            str(body.get("provider") or ""),
+            str(body.get("api_key") or ""),
+            str(body.get("model") or ""),
+            findings,
+        )
+    except (ValueError, ProviderError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if scan_id:
+        save_verdicts(scan_id, verdicts)
+    return {"verdicts": verdicts}
+
+
+@app.delete("/api/scans/{scan_id}/verdicts")
+def reset_verdicts(scan_id: str) -> dict:
+    clear_verdicts(scan_id)
+    return {"ok": True}
 
 
 @app.post("/api/ai/poc")

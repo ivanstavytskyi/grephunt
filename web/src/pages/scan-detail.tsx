@@ -5,6 +5,7 @@ import type { Finding, ScanEvent, Severity, TaskSummary } from "@/api/types";
 import { ExplainAi } from "@/components/explain-ai";
 import { ScanExportButton } from "@/components/scan-export-button";
 import { ScanReportAi } from "@/components/scan-report-ai";
+import { PrioritizeAi } from "@/components/prioritize-ai";
 import { describeFindingsFilter, filterFindings, type FindingsFilterState } from "@/lib/findings-filter";
 import { findingKey, FindingsTable } from "@/components/findings-table";
 import { SelectMenu } from "@/components/select-menu";
@@ -355,6 +356,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
             </div>
             <div className="flex flex-wrap items-start gap-2">
               <ScanReportAi scan={scan.data} findings={rows} />
+              <PrioritizeAi scanId={scanId} findings={rows} />
               {!scan.data?.target_path?.toLowerCase().endsWith(".tar") && (
                 <button
                   type="button"
@@ -569,7 +571,7 @@ function FindingDetail({ scanId, finding }: { scanId: string; finding: Finding }
       {finding.location && (
         <p className="font-mono text-xs text-ink-muted">{locationLabel(finding.location)}</p>
       )}
-      {finding.exploitability && <ExploitabilityPanel exploitability={finding.exploitability} />}
+      {finding.exploitability && <ExploitabilityPanel exploitability={finding.exploitability} reason={finding.ai_reason} />}
       <FindingMapContext finding={finding} />
       <FindingConfirmations finding={finding} />
       <FindingCode

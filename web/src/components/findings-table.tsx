@@ -138,10 +138,13 @@ export const FindingsTable = memo(function FindingsTable({
                 <Badge tone={finding.severity}>{finding.severity}</Badge>
               </div>
               <div className="px-3 py-2.5 text-sm">{finding.category}</div>
-              <div className="px-3 py-2.5 font-mono text-xs leading-5 break-all">{where}</div>
+              <div className="min-w-0 px-3 py-2.5 font-mono text-xs leading-4" title={where}>
+                <span className="line-clamp-2 break-all">{where}</span>
+              </div>
               <div className="min-w-0 px-3 py-2.5 text-sm leading-5">
-                <p className="truncate" title={title}>
-                  {title}
+                <p className="flex min-w-0 items-center gap-1.5" title={finding.ai_reason ? `${title}\nAI: ${finding.ai_reason}` : title}>
+                  {finding.ai_verdict && <VerdictTag verdict={finding.ai_verdict} />}
+                  <span className={`truncate ${finding.ai_verdict === "false_positive" ? "text-ink-muted line-through decoration-ink-muted/50" : ""}`}>{title}</span>
                 </p>
                 {finding.context?.routes?.[0] && (
                   <p className="truncate font-mono text-[11px] leading-4 text-ink-muted" title="Route that reaches this code (project map)">
@@ -150,7 +153,7 @@ export const FindingsTable = memo(function FindingsTable({
                   </p>
                 )}
               </div>
-              <div className="flex px-3 py-2.5">
+              <div className="flex items-start px-3 pb-2.5 pt-3">
                 {finding.exploitability ? <ExploitabilityMeter exploitability={finding.exploitability} /> : <span className="text-xs text-ink-muted">—</span>}
               </div>
               <div className="px-3 py-2.5 font-mono text-xs text-ink-muted">{toolLabel(finding)}</div>
@@ -164,3 +167,19 @@ export const FindingsTable = memo(function FindingsTable({
     </div>
   );
 });
+const VERDICT: Record<string, { text: string; tone: string }> = {
+  confirmed: { text: "AI ✓", tone: "bg-rose-500/15 text-rose-200" },
+  likely: { text: "AI ?", tone: "bg-amber-400/15 text-amber-100" },
+  false_positive: { text: "AI ✗", tone: "bg-zinc-500/20 text-zinc-300" },
+};
+
+function VerdictTag({ verdict }: { verdict: string }) {
+  const item = VERDICT[verdict];
+  if (!item) return null;
+  const meaning = verdict === "confirmed" ? "confirmed by AI review" : verdict === "likely" ? "AI review: likely real, input source not shown" : "AI review: likely a false positive";
+  return (
+    <span className={`shrink-0 rounded px-1 font-mono text-[10px] leading-4 ${item.tone}`} title={meaning}>
+      {item.text}
+    </span>
+  );
+}

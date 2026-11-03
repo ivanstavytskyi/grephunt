@@ -52,6 +52,8 @@ export type Finding = {
   confirmations?: { tool: string; rule_id: string; title: string; line: number | null; severity: string | null }[];
   lines?: number[];
   exploitability?: { score: number; label: string; factors: string[] };
+  ai_verdict?: "confirmed" | "likely" | "false_positive" | null;
+  ai_reason?: string;
   evidence: string | null;
   status: string;
   raw_ref: string | null;

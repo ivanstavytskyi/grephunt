@@ -2,6 +2,7 @@ import type { Finding, Severity } from "@/api/types";
 import { locationLabel } from "@/lib/utils";
 
 const RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+const VERDICT_RANK: Record<string, number> = { confirmed: 0, likely: 1, "": 1, false_positive: 2 };
 
 export type FindingsFilterState = {
   severity: Severity | "all";
@@ -35,7 +36,13 @@ function searchText(finding: Finding): string {
 export function sortFindingsBySeverity(rows: Finding[]): Finding[] {
   const copy = [...rows];
   copy.sort((left, right) => {
+    // After an AI review: confirmed first, likely false positives last.
+    const verdict = VERDICT_RANK[left.ai_verdict ?? ""] - VERDICT_RANK[right.ai_verdict ?? ""];
+    if (verdict !== 0) return verdict;
     const sev = RANK[left.severity] - RANK[right.severity];
+    if (sev !== 0) return sev;
+    const exploit = (right.exploitability?.score ?? 0) - (left.exploitability?.score ?? 0);
+    if (exploit !== 0) return exploit;
     if (sev !== 0) return sev;
     const pathCmp = (left.location?.path ?? "").localeCompare(right.location?.path ?? "");
     if (pathCmp !== 0) return pathCmp;
