@@ -1,0 +1,40 @@
+name: snyk-open-source
+module: sast
+binary: snyk
+image: python:3.12.12-slim
+version: "1.1308.3"
+container_binary: /opt/snyk/snyk
+# Snyk Open Source sends the dependency graph (package names and versions) to Snyk.
+cloud: true
+default_enabled: false
+network: true
+timeout_sec: 1800
+user: "65534"
+cpus: "2"
+memory: 3g
+pids_limit: 512
+args:
+  - test
+  - "{src}"
+  - --all-projects
+  - --detection-depth=6
+  - --exclude=node_modules,vendor,.venv,venv
+  # Manifests whose packages are not installed (requirements.txt without a venv) are skipped, not fatal.
+  - --skip-unresolved
+  - "--sarif-file-output={output}"
+# Snyk Container for an image tar.
+image_args:
+  - container
+  - test
+  - "{image_ref}"
+  - "--sarif-file-output={output}"
+output_filename: snyk-open-source.sarif
+ok_exit_codes: [0, 1]
+skip_exit_codes: [3]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cap_drop:
+  - ALL
+no_new_privileges: true

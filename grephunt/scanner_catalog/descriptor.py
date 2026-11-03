@@ -75,6 +75,12 @@ class ToolDescriptor(BaseModel):
     """Category for every finding of this tool, when its rules do not say (secret scanners)."""
     trust_reported_version: bool = True
     """False when the tool writes a fixed version into SARIF (Gitleaks and Betterleaks write v8.0.0)."""
+    skip_exit_codes: list[int] = Field(default_factory=list)
+    """Exit codes that mean "nothing here to scan" (Snyk: 3). The task is skipped, not failed."""
+    default_enabled: bool = True
+    """False: the scanner runs only when it is selected by name (CLI -s, or the console)."""
+    cloud: bool = False
+    """True: the scan sends project data to the vendor's service. Shown in the console."""
     ok_exit_codes: list[int] | None = None
     """Exit codes of a finished scan. Any other code fails the task even if a report was written,
     because some tools write an empty report when they could not load their database."""

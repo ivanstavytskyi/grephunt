@@ -33,6 +33,10 @@ class ScannerTool:
     def name(self) -> str:
         return self.descriptor.name
 
+    def _extra_environment(self, options: ScanOptions, use_docker: bool) -> dict[str, str]:
+        extra = getattr(self.hook, "extra_environment", None)
+        return dict(extra(options, use_docker)) if extra is not None else {}
+
     def is_applicable(self, project: Path) -> bool:
         return self.hook.is_applicable(project)
 
@@ -181,7 +185,7 @@ class ScannerTool:
                 memory=self.descriptor.memory,
                 pids_limit=self.descriptor.pids_limit,
                 binds=binds,
-                environment=self.descriptor.environment,
+                environment={**self.descriptor.environment, **self._extra_environment(options, True)},
                 timeout_sec=self.descriptor.timeout_sec,
                 cap_drop=self.descriptor.cap_drop,
                 no_new_privileges=self.descriptor.no_new_privileges,
@@ -213,6 +217,7 @@ class ScannerTool:
                 args=self.hook.build_args(self.descriptor, str(project), str(sarif_path), options, False),
                 timeout_sec=self.descriptor.timeout_sec,
                 network=network,
+                environment=self._extra_environment(options, False),
             )
             started = time.monotonic()
             heartbeat = asyncio.create_task(
@@ -233,6 +238,12 @@ class ScannerTool:
                 tool=self.name, status=TaskStatus.TIMEOUT, duration_sec=duration,
                 tool_version=version, image=self.descriptor.image, error=outcome.error,
             )
+        if outcome.returncode in self.descriptor.skip_exit_codes and not sarif_path.exists() and not (raw_path and raw_path.exists()):
+            message = "nothing to scan for this tool in the project"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "skipped"}))
+            return TaskRun(tool=self.name, status=TaskStatus.SKIPPED, duration_sec=duration, tool_version=version,
+                           image=self.descriptor.image, error=message)
+
         allowed = self.descriptor.ok_exit_codes
         if allowed is not None and outcome.returncode not in allowed:
             raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""

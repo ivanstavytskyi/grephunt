@@ -5,7 +5,10 @@ import os
 from pathlib import Path
 
 from grephunt.config import DATA_DIR
-from grephunt.scanner_catalog.descriptor import ToolDescriptor
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # the catalog imports this module through the hooks
+    from grephunt.scanner_catalog.descriptor import ToolDescriptor
 
 
 def cache_dir(name: str) -> Path:

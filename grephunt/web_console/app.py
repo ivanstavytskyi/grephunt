@@ -13,11 +13,12 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from grephunt.integrations import snyk as snyk_integration
 from grephunt.web_console.ai_explain import DEEPSEEK_MODELS, GEMINI_MODELS, check_key, explain_finding
 from grephunt.web_console.github_source import download_github_zip
 from grephunt.web_console.uploads import safe_extract
@@ -434,6 +435,46 @@ def _preview_rules(config: str) -> dict:
         "shown": len(shown),
         "rules": shown,
     }
+
+
+def _same_origin(request: Request) -> None:
+    """A page on another site can send a POST here (CORS only hides the answer). The account
+    endpoints accept only the console itself."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        return
+    host = request.headers.get("host", "")
+    allowed = {f"http://{host}", f"https://{host}", "http://127.0.0.1:5173", "http://localhost:5173"}
+    if origin not in allowed:
+        raise HTTPException(status_code=403, detail="request from another site")
+
+
+@app.get("/api/integrations/snyk")
+def snyk_status() -> dict:
+    return snyk_integration.LOGIN.status()
+
+
+@app.post("/api/integrations/snyk/login")
+def snyk_login(request: Request) -> dict:
+    """Start the Snyk CLI's OAuth login. The console polls the status for the app.snyk.io address
+    and opens it in a popup; Snyk redirects back to the CLI on 127.0.0.1."""
+    _same_origin(request)
+    return snyk_integration.LOGIN.start()
+
+
+@app.post("/api/integrations/snyk/cancel")
+def snyk_cancel(request: Request) -> dict:
+    _same_origin(request)
+    snyk_integration.LOGIN.cancel()
+    return snyk_integration.LOGIN.status()
+
+
+@app.post("/api/integrations/snyk/logout")
+def snyk_logout(request: Request) -> dict:
+    _same_origin(request)
+    snyk_integration.LOGIN.cancel()
+    snyk_integration.disconnect()
+    return snyk_integration.LOGIN.status()
 
 
 @app.get("/api/ai/models")

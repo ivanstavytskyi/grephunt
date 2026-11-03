@@ -45,6 +45,8 @@ def list_tools() -> list[dict]:
             "network": tool.descriptor.network,
             "prepare_network": tool.descriptor.prepare_network,
             "scans_images": bool(getattr(tool.hook, "supports_image", lambda: False)()),
+            "default_enabled": tool.descriptor.default_enabled,
+            "cloud": tool.descriptor.cloud,
         }
         for tool in load_tools().values()
     ]

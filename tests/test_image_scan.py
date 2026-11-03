@@ -20,7 +20,7 @@ from grephunt.web_console import scans as scan_service
 
 from image_fixture import docker_archive, oci_archive
 
-IMAGE_TOOLS = {"trivy", "grype", "syft", "osv-scanner", "trufflehog"}
+IMAGE_TOOLS = {"trivy", "grype", "syft", "osv-scanner", "trufflehog", "snyk-open-source"}
 
 
 def _source_tar(path: Path) -> Path:

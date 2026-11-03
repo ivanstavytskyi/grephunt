@@ -179,3 +179,14 @@ def test_secret_scanners_find_the_fake_github_token(tmp_path: Path):
         hits = [item for item in result.findings if item.location.path == "config.py" and item.location.start_line == 2]
         assert hits, name
         assert all(token not in (item.snippet or "") + item.message for item in result.findings), name
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_snyk_open_source_with_a_connected_account(tmp_path: Path):
+    from grephunt.integrations import snyk
+
+    if not snyk.is_connected():
+        pytest.skip("connect Snyk in the console first")
+    tool = load_tools()["snyk-open-source"]
+    result = asyncio.run(run_scan(ROOT / "samples" / "vuln_flask", tmp_path / "snyk", [tool], ScanOptions(excludes=[], use_docker=True)))
+    assert result.runs[0].status.value in {"success", "skipped"}, result.runs[0].error

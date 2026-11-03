@@ -2,13 +2,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@/lib/nav";
 import { Archive, FolderOpen, Minus, Plus, ScrollText } from "lucide-react";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fetchTools, startScan } from "@/lib/api";
+import { SnykConnect } from "@/components/snyk-connect";
+import { fetchTools, startScan, type SnykStatus } from "@/lib/api";
 
 const schema = z.object({
   configs: z.string(),
@@ -35,6 +36,8 @@ export function NewScanPage() {
   const [folder, setFolder] = useState<File[] | null>(null);
   const zipInput = useRef<HTMLInputElement>(null);
   const imageMode = isImageArchive(archive);
+  const [snykConnected, setSnykConnected] = useState(false);
+  const onSnyk = useCallback((status: SnykStatus) => setSnykConnected(status.connected), []);
   const folderInput = useRef<HTMLInputElement>(null);
   const { navigate } = useNavigation();
   const queryClient = useQueryClient();
@@ -44,6 +47,15 @@ export function NewScanPage() {
   });
 
   const imageTools = (tools.data ?? []).filter((tool) => tool.scans_images).map((tool) => tool.name);
+  const defaultImageTools = (tools.data ?? [])
+    .filter((tool) => tool.scans_images && tool.default_enabled)
+    .map((tool) => tool.name);
+
+  const cloudTools = (tools.data ?? []).filter((tool) => tool.cloud).map((tool) => tool.name);
+  const runnable = (names: string[]) =>
+    names.filter(
+      (name) => (!imageMode || imageTools.includes(name)) && (snykConnected || !cloudTools.includes(name)),
+    );
 
   const chooseArchive = (file: File | null) => {
     setArchive(file);
@@ -52,7 +64,7 @@ export function NewScanPage() {
     if (isImageArchive(file)) {
       setSelected((current) => {
         const kept = current.filter((name) => imageTools.includes(name));
-        return kept.length > 0 ? kept : imageTools;
+        return kept.length > 0 ? kept : defaultImageTools;
       });
     }
   };
@@ -63,7 +75,7 @@ export function NewScanPage() {
         archive: folder ? null : archive,
         folder,
         githubUrl: values.github,
-        scanners: imageMode ? selected.filter((name) => imageTools.includes(name)) : selected,
+        scanners: runnable(selected),
         configs: values.configs,
         useDocker: true,
       }),
@@ -91,7 +103,7 @@ export function NewScanPage() {
             toast.error("Add a zip file, choose a project folder, or paste a GitHub link.");
             return;
           }
-          if ((imageMode ? selected.filter((name) => imageTools.includes(name)) : selected).length === 0) {
+          if (runnable(selected).length === 0) {
             toast.error("Select at least one scanner");
             return;
           }
@@ -198,6 +210,8 @@ export function NewScanPage() {
           </div>
         </div>
 
+        <SnykConnect onChange={onSnyk} />
+
         <fieldset>
           <legend className="mb-2 text-sm">Scanners</legend>
           {imageMode && (
@@ -207,14 +221,23 @@ export function NewScanPage() {
           )}
           <div className="flex flex-wrap gap-2">
             {(tools.data ?? []).map((tool) => {
-              const blocked = imageMode && !tool.scans_images;
+              const needsLogin = tool.cloud && !snykConnected;
+              const blocked = (imageMode && !tool.scans_images) || needsLogin;
               const on = selected.includes(tool.name) && !blocked;
               return (
                 <button
                   key={tool.name}
                   type="button"
                   disabled={blocked}
-                  title={blocked ? `${tool.name} does not scan container images` : undefined}
+                  title={
+                    needsLogin
+                      ? "Connect Snyk first"
+                      : blocked
+                        ? `${tool.name} does not scan container images`
+                        : tool.cloud
+                          ? "Runs in the vendor's cloud: project data leaves this machine"
+                          : undefined
+                  }
                   onClick={() =>
                     setSelected((current) =>
                       current.includes(tool.name)
@@ -230,6 +253,7 @@ export function NewScanPage() {
                   <span className="font-mono text-[11px] leading-4 text-ink-muted">
                     {tool.version}
                     {tool.scans_images ? " · image" : ""}
+                    {tool.cloud ? " · cloud" : ""}
                   </span>
                 </button>
               );

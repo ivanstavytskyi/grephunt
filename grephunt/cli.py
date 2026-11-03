@@ -47,7 +47,8 @@ def resolve_project(cli_value: str | None) -> Path:
 
 def parse_scanners(values: list[str] | None, known: dict) -> list[str]:
     if not values:
-        return list(known)
+        # Cloud scanners (Snyk) upload project data. They run only when named with -s.
+        return [name for name, tool in known.items() if tool.descriptor.default_enabled]
     names = [item.strip().lower() for value in values for item in value.split(",") if item.strip()]
     unknown = [name for name in names if name not in known]
     if unknown:
@@ -153,7 +154,11 @@ def _scan_image(args, tools) -> None:
         image_format = detect_image_format(image)
     except ValueError as exc:
         sys.exit(str(exc))
-    capable = [name for name, tool in tools.items() if getattr(tool.hook, "supports_image", lambda: False)()]
+    capable = [
+        name
+        for name, tool in tools.items()
+        if getattr(tool.hook, "supports_image", lambda: False)() and tool.descriptor.default_enabled
+    ]
     names = parse_scanners(args.scanner, tools) if args.scanner else capable
     out_dir = args.out / image.stem
     mode = "locally" if args.local else "Docker"
