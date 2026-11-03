@@ -37,4 +37,4 @@ build-backend = "setuptools.build_meta"
 include = ["grephunt*"]
 
 [tool.setuptools.package-data]
-grephunt = ["scanner_catalog/*.yaml", "finding_model/*.json"]
+grephunt = ["scanner_catalog/*.yaml", "scanner_catalog/locks/*.txt", "finding_model/*.json"]

@@ -1,0 +1,63 @@
+name: bandit
+module: sast
+binary: bandit
+# Bandit has no versioned image. A pinned Python image installs pinned Bandit
+# once (locks/bandit.txt, checked by hash), and every scan reuses that install.
+image: python:3.12.12-slim
+version: "1.9.4"
+container_binary: /opt/bandit/1.9.4/bin/bandit
+timeout_sec: 1200
+network: false
+prepare_network: true
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 256
+applies_to: ["*.py", "*.pyw"]
+args:
+  - -r
+  - "{src}"
+  - --format
+  - json
+  - --output
+  - "{output}"
+  - --quiet
+  - --exit-zero
+  # Bandit matches -x as a substring of the path, so "test" would also drop "latest.py".
+  # Only whole directory names here; the pipeline applies the project excludes afterwards.
+  - -x
+  - "/.git/,/__pycache__/,/.tox/,/.eggs/,/node_modules/,/.venv/,/venv/,/site-packages/"
+output_format: bandit-json
+raw_output_filename: bandit.json
+output_filename: bandit.sarif
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  PYTHONPATH: /opt/bandit/1.9.4
+  PYTHONDONTWRITEBYTECODE: "1"
+cache_volumes:
+  - name: grephunt-bandit
+    path: /opt/bandit
+    read_only: true
+prepare:
+  binary: python
+  cache: grephunt-bandit
+  docker_only: true
+  network: true
+  args:
+    - -m
+    - pip
+    - install
+    - --no-cache-dir
+    - --disable-pip-version-check
+    - --require-hashes
+    - "--only-binary=:all:"
+    - --upgrade
+    - --target
+    - "{cache:grephunt-bandit}/1.9.4"
+    - -r
+    - "{catalog}/locks/bandit.txt"
+cap_drop:
+  - ALL
+no_new_privileges: true
