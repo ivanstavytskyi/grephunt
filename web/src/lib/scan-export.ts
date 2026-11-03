@@ -340,7 +340,6 @@ function allEntries(model: ReportModel): FindingEntry[] {
 function toMarkdown(model: ReportModel): string {
   const entries = allEntries(model);
   const out: string[] = [`# ${model.title}`, "", model.summaryLine];
-  if (model.incomplete) out.push("", `> **Note:** ${model.incomplete}`);
   if (model.filterNote) out.push("", `> ${model.filterNote}`);
 
   out.push("", "## Overview", "");
@@ -435,7 +434,6 @@ function markdownToText(markdown: string): string {
 function toText(model: ReportModel): string {
   const entries = allEntries(model);
   const out: string[] = [underline(model.title), "", wrap(model.summaryLine)];
-  if (model.incomplete) out.push("", wrap(`NOTE: ${model.incomplete}`));
   if (model.filterNote) out.push("", wrap(model.filterNote));
 
   out.push("", "", underline("OVERVIEW", "-"), "");
@@ -536,9 +534,13 @@ function miniMarkdown(markdown: string): string {
 }
 
 const PRINT_CSS = `
-@page { size: A4; margin: 16mm 14mm; }
+@page { size: A4; margin: 0; }
 * { box-sizing: border-box; }
-body { font: 9.5pt/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #1a1d23; margin: 0; }
+html, body { margin: 0; padding: 0; }
+body { font: 9.5pt/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #1a1d23; }
+/* The print dialog can override @page margins (Firefox "Margins: None"), so the page margin lives here:
+   clone repeats the padding at the top and bottom of every printed page. */
+.sheet { padding: 16mm 15mm; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 h1 { font-size: 17pt; margin: 0 0 3pt; font-weight: 600; }
 h2 { font-size: 12.5pt; margin: 18pt 0 6pt; padding-bottom: 3pt; border-bottom: 1px solid #c9ced6; font-weight: 600; break-after: avoid; }
 h3 { font-size: 10pt; margin: 12pt 0 4pt; font-weight: 600; }
@@ -548,18 +550,21 @@ ul, ol { margin: 0 0 5pt; padding-left: 16pt; }
 .muted { color: #4f5764; }
 .note { border-left: 3px solid #b8873a; background: #faf6ee; padding: 5pt 8pt; margin: 8pt 0; }
 table { border-collapse: collapse; width: 100%; margin: 4pt 0 8pt; font-size: 8.5pt; }
+tr { break-inside: avoid; }
+table.findings { table-layout: fixed; }
+td { overflow-wrap: anywhere; }
 th, td { text-align: left; padding: 2.5pt 6pt; border-bottom: 1px solid #e6e8ec; vertical-align: top; }
 th { font-weight: 600; border-bottom: 1px solid #9aa3af; }
 .num { text-align: right; white-space: nowrap; }
 td:first-child, th:first-child { white-space: nowrap; }
-table.totals { width: auto; margin: 2pt 0 12pt; border: 1px solid #e6e8ec; }
-table.totals th, table.totals td { width: 62pt; text-align: center; padding: 4pt 8pt; border: 0; }
+table.totals { width: 100%; table-layout: fixed; margin: 2pt 0 12pt; border: 1px solid #e6e8ec; }
+table.totals th, table.totals td { text-align: center; padding: 4pt 8pt; border: 0; }
 table.totals th { font-size: 8pt; font-weight: 600; border-bottom: 1px solid #e6e8ec; }
 table.totals td { font-size: 14pt; font-weight: 600; }
 table.totals th + th, table.totals td + td { border-left: 1px solid #e6e8ec; }
 code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 8pt; }
-code { word-break: break-all; }
-pre { background: #f6f7f9; border: 1px solid #e6e8ec; padding: 4pt 6pt; white-space: pre-wrap; word-break: break-all; margin: 4pt 0 0; }
+code { overflow-wrap: anywhere; }
+pre { background: #f6f7f9; border: 1px solid #e6e8ec; padding: 4pt 6pt; white-space: pre-wrap; overflow-wrap: anywhere; margin: 4pt 0 0; }
 .sev { font-weight: 600; }
 .sev-critical { color: #9b1219; } .sev-high { color: #9a4500; } .sev-medium { color: #6f5300; }
 .sev-low { color: #2f4f7f; } .sev-info { color: #4f5764; }
@@ -570,6 +575,11 @@ pre { background: #f6f7f9; border: 1px solid #e6e8ec; padding: 4pt 6pt; white-sp
 footer { margin-top: 16pt; font-size: 8pt; color: #4f5764; }
 `;
 
+/** Paths wrap after a "/" or before ":line" instead of in the middle of a file name. */
+function pathHtml(value: string): string {
+  return esc(value).replace(/\//g, "/<wbr>").replace(/:(\d)/g, "<wbr>:$1");
+}
+
 function sevSpan(severity: Severity): string {
   return `<span class="sev sev-${severity}">${SEVERITY_LABEL[severity]}</span>`;
 }
@@ -577,11 +587,10 @@ function sevSpan(severity: Severity): string {
 function toHtml(model: ReportModel, documentTitle: string): string {
   const entries = allEntries(model);
   const out: string[] = [
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(documentTitle)}</title><style>${PRINT_CSS}</style></head><body>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(documentTitle)}</title><style>${PRINT_CSS}</style></head><body><div class="sheet">`,
     `<h1>${esc(model.title)}</h1>`,
     `<p class="muted">${esc(model.summaryLine)}</p>`,
   ];
-  if (model.incomplete) out.push(`<p class="note">${esc(model.incomplete)}</p>`);
   if (model.filterNote) out.push(`<p class="muted">${esc(model.filterNote)}</p>`);
 
   out.push("<h2>Overview</h2>", '<table class="totals"><thead><tr>');
@@ -591,11 +600,14 @@ function toHtml(model: ReportModel, documentTitle: string): string {
   out.push(`<td>${model.totalFindings}</td></tr></tbody></table>`);
 
   if (entries.length) {
-    out.push("<table><thead><tr><th>ID</th><th>Severity</th><th>Finding</th><th>Location</th></tr></thead><tbody>");
+    out.push(
+      '<table class="findings"><colgroup><col style="width:38pt"><col style="width:50pt"><col><col style="width:38%"></colgroup>',
+      "<thead><tr><th>ID</th><th>Severity</th><th>Finding</th><th>Location</th></tr></thead><tbody>",
+    );
     for (const entry of entries) {
       out.push(
         `<tr><td>${entry.id}</td><td>${sevSpan(entry.severity)}</td><td>${esc(truncate(entry.title, 110))}</td><td>${
-          entry.location ? `<code>${esc(entry.location)}</code>` : "—"
+          entry.location ? `<code>${pathHtml(entry.location)}</code>` : "—"
         }</td></tr>`,
       );
     }
@@ -610,7 +622,7 @@ function toHtml(model: ReportModel, documentTitle: string): string {
       out.push(
         '<section class="finding">',
         `<h3>${entry.id} · ${sevSpan(entry.severity)} · ${esc(entry.title)}</h3>`,
-        `<div class="meta">${[entry.location ? `<code>${esc(entry.location)}</code>` : "", ...metaParts(entry).map(esc)]
+        `<div class="meta">${[entry.location ? `<code>${pathHtml(entry.location)}</code>` : "", ...metaParts(entry).map(esc)]
           .filter(Boolean)
           .join(" · ")}</div>`,
       );
@@ -642,7 +654,7 @@ function toHtml(model: ReportModel, documentTitle: string): string {
       out.push(`<h4>${message.role === "user" ? "Question" : "Answer"}</h4>`, miniMarkdown(message.content.trim()));
     }
   }
-  out.push("</div>", `<footer>Generated by GrepHunt on ${esc(model.generatedAt)}.</footer>`, "</body></html>");
+  out.push("</div>", `<footer>Generated by GrepHunt on ${esc(model.generatedAt)}.</footer>`, "</div></body></html>");
   return out.join("\n");
 }
 
