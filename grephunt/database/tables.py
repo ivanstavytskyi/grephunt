@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, event, text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from grephunt.config import DATA_DIR, database_url
@@ -64,6 +64,19 @@ class FindingRow(Base):
     category: Mapped[str] = mapped_column(String(32), index=True)
     tool: Mapped[str] = mapped_column(String(64))
     body: Mapped[str] = mapped_column(Text)
+
+
+class DismissedFindingRow(Base):
+    """Findings a person removed from a scan. Later pipeline writes must not put them back."""
+
+    __tablename__ = "dismissed_findings"
+    __table_args__ = (UniqueConstraint("scan_id", "fingerprint", "correlation_key", name="uq_dismissed_finding"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_id: Mapped[str] = mapped_column(ForeignKey("scans.id"), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    fingerprint: Mapped[str] = mapped_column(String(512))
+    correlation_key: Mapped[str] = mapped_column(String(512), default="")
 
 
 class EventRow(Base):

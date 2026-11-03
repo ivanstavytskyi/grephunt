@@ -13,7 +13,7 @@ from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scan_pipeline.excludes import collect_excludes
 from grephunt.scan_pipeline.pipeline import run_scan
 from grephunt.report_output.json_export import write_findings_json
-from grephunt.database.tables import EventRow, FindingRow, ScanRow, TaskRow, make_session_factory
+from grephunt.database.tables import DismissedFindingRow, EventRow, FindingRow, ScanRow, TaskRow, make_session_factory
 from grephunt.finding_model.record import ScanResult
 from grephunt.scanner_catalog.parameter_schema import validate_scan_params
 from grephunt.web_console.scan_source_context import infer_github_from_label
@@ -210,7 +210,12 @@ def _save_result(scan_id: str, result: ScanResult, partial: bool) -> None:
             task.image = run.image
             task.error = run.error
         session.query(FindingRow).filter(FindingRow.scan_id == scan_id).delete(synchronize_session=False)
+        dismissed = _dismissed_keys(session, scan_id)
+        kept = 0
         for finding in result.findings:
+            if (finding.fingerprint, finding.correlation_key) in dismissed:
+                continue
+            kept += 1
             body = finding.model_dump(mode="json")
             session.add(
                 FindingRow(
@@ -224,6 +229,7 @@ def _save_result(scan_id: str, result: ScanResult, partial: bool) -> None:
                     body=json.dumps(body, ensure_ascii=False),
                 )
             )
+        row.finding_count = kept
         session.commit()
 
 
@@ -280,7 +286,81 @@ def get_findings(scan_id: str) -> list[dict] | None:
         if row is None or row.tenant_id != DEFAULT_TENANT:
             return None
         findings = session.query(FindingRow).filter(FindingRow.scan_id == scan_id).all()
-        return [json.loads(item.body) for item in findings]
+        dismissed = _dismissed_keys(session, scan_id)
+        visible = [
+            item
+            for item in findings
+            if (item.fingerprint, item.correlation_key) not in dismissed
+        ]
+        return [json.loads(item.body) for item in visible]
+
+
+def dismiss_findings(scan_id: str, keys: list[tuple[str, str]]) -> int | None:
+    """Remove findings from this scan. Returns how many rows were deleted, or None if the scan is missing."""
+    unique = list(dict.fromkeys((fingerprint, correlation_key) for fingerprint, correlation_key in keys if fingerprint))
+    with session_factory()() as session:
+        row = session.get(ScanRow, scan_id)
+        if row is None or row.tenant_id != DEFAULT_TENANT:
+            return None
+        already = _dismissed_keys(session, scan_id)
+        removed = 0
+        for fingerprint, correlation_key in unique:
+            if (fingerprint, correlation_key) not in already:
+                session.add(
+                    DismissedFindingRow(
+                        scan_id=scan_id,
+                        tenant_id=DEFAULT_TENANT,
+                        fingerprint=fingerprint,
+                        correlation_key=correlation_key,
+                    )
+                )
+                already.add((fingerprint, correlation_key))
+            deleted = (
+                session.query(FindingRow)
+                .filter(
+                    FindingRow.scan_id == scan_id,
+                    FindingRow.fingerprint == fingerprint,
+                    FindingRow.correlation_key == correlation_key,
+                )
+                .delete(synchronize_session=False)
+            )
+            removed += int(deleted or 0)
+        row.finding_count = session.query(FindingRow).filter(FindingRow.scan_id == scan_id).count()
+        session.commit()
+    _drop_dismissed_from_files(scan_id, set(unique))
+    return removed
+
+
+def _dismissed_keys(session, scan_id: str) -> set[tuple[str, str]]:
+    rows = session.query(DismissedFindingRow).filter(DismissedFindingRow.scan_id == scan_id).all()
+    return {(item.fingerprint, item.correlation_key) for item in rows}
+
+
+def _drop_dismissed_from_files(scan_id: str, keys: set[tuple[str, str]]) -> None:
+    directory = DATA_DIR / "scans" / scan_id
+    findings_path = directory / "findings.json"
+    if findings_path.is_file():
+        try:
+            payload = json.loads(findings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            payload = None
+        if isinstance(payload, list):
+            kept = [
+                item
+                for item in payload
+                if isinstance(item, dict)
+                and (str(item.get("fingerprint") or ""), str(item.get("correlation_key") or "")) not in keys
+            ]
+            findings_path.write_text(json.dumps(kept, indent=2, ensure_ascii=False), encoding="utf-8")
+            meta_path = directory / "scan.json"
+            if meta_path.is_file():
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    meta = None
+                if isinstance(meta, dict):
+                    meta["findings"] = len(kept)
+                    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def get_events(scan_id: str, after: int = 0) -> list[dict] | None:

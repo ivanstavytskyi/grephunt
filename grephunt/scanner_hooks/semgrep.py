@@ -7,6 +7,10 @@ from grephunt.finding_model.record import Finding
 from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scanner_catalog.descriptor import ToolDescriptor
 
+# Always applied, in addition to the rulesets chosen in the UI.
+BUNDLED_RULES = Path(__file__).resolve().parents[1] / "scanner_catalog" / "rules"
+_BUNDLED_MOUNT = "/rules/grephunt"
+
 
 class SemgrepHook:
     name = "semgrep"
@@ -29,6 +33,8 @@ class SemgrepHook:
         for index, (_, path) in enumerate(self._local_configs(options)):
             host = path if path.is_dir() else path.parent
             mounts.append((host, f"/rules/{index}"))
+        if BUNDLED_RULES.is_dir():
+            mounts.append((BUNDLED_RULES, _BUNDLED_MOUNT))
         return mounts
 
     def _container_config(self, config: str, options: ScanOptions) -> str:
@@ -50,6 +56,8 @@ class SemgrepHook:
                 str(Path(config).resolve()) if Path(config).exists() else config
             )
             args += ["--config", rendered]
+        if BUNDLED_RULES.is_dir():
+            args += ["--config", _BUNDLED_MOUNT if use_docker else str(BUNDLED_RULES)]
         for pattern in options.excludes:
             args += ["--exclude", pattern]
         # Trivy still scans vendor trees for CVEs; Semgrep on node_modules OOMs large JS apps.
