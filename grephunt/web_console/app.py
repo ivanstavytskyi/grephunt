@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -267,6 +267,28 @@ async def project_map_rebuild(scan_id: str) -> dict:
 class MapOverlay(BaseModel):
     version: int = 1
     views: dict[str, dict] = {}
+
+
+@app.get("/api/scans/{scan_id}/map/export")
+def project_map_export(scan_id: str, format: str = "canvas", view: str = "architecture") -> Response:
+    """The map as an Obsidian canvas or a Mermaid flowchart, with the person's edits applied."""
+    from grephunt.project_map.export import to_canvas, to_mermaid
+
+    if format not in {"canvas", "mermaid"} or view not in {"architecture", "files"}:
+        raise HTTPException(status_code=400, detail="format is canvas or mermaid; view is architecture or files")
+    found = get_project_map(scan_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    if not found:
+        raise HTTPException(status_code=409, detail="this scan has no project map yet")
+    overlay = get_map_overlay(scan_id) or {}
+    label = (get_scan(scan_id) or {}).get("target_label") or found.get("root_label") or scan_id
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", re.sub(r"\.(zip|tar|tgz)$", "", str(label))).strip("-") or scan_id
+    if format == "canvas":
+        body = json.dumps(to_canvas(found, view, overlay, get_findings(scan_id) or []), indent=1)
+        return Response(body, media_type="application/json", headers={"Content-Disposition": f'attachment; filename="{name}-{view}.canvas"'})
+    return Response(to_mermaid(found, view, overlay), media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}-{view}.mmd"'})
 
 
 @app.get("/api/scans/{scan_id}/map/overlay")

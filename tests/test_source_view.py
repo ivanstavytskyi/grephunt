@@ -92,3 +92,29 @@ def test_map_overlay_is_saved_apart_from_the_map(tmp_path: Path, monkeypatch):
     assert client.post("/api/scans/s1/map").status_code == 200  # a rebuild keeps the edits
     assert client.get("/api/scans/s1/map/overlay").json()["views"]["architecture"]["notes"]["r:GET /user"] == "SQL injection here"
     assert client.put("/api/scans/nope/map/overlay", json=overlay).status_code == 404
+
+
+def test_running_scan_shows_correlated_findings(tmp_path: Path, monkeypatch):
+    import json
+
+    from grephunt.database.tables import FindingRow
+    from grephunt.finding_model.record import Category, Finding, Location, Severity
+
+    client = _setup(tmp_path, monkeypatch, ROOT / "samples" / "vuln_flask")
+    with scan_service.session_factory()() as session:
+        session.add(ScanRow(id="live", tenant_id=DEFAULT_TENANT, target_label="numberlink", target_path=str(tmp_path), status="running"))
+        for line in (36, 55, 80):
+            finding = Finding(category=Category.MISCONFIG, tool="trivy", rule_id="AWS-0104", severity=Severity.CRITICAL,
+                              title="A security group rule should not allow unrestricted egress to any IP address.",
+                              location=Location(path="terraform/modules/network/main.tf", start_line=line))
+            body = finding.model_dump(mode="json")
+            session.add(FindingRow(scan_id="live", fingerprint=body["fingerprint"], correlation_key=body["correlation_key"],
+                                   severity="critical", category="misconfig", tool="trivy", body=json.dumps(body)))
+        session.commit()
+    live = client.get("/api/scans/live/findings").json()
+    assert len(live) == 1
+    assert live[0]["lines"] == [36, 55, 80]
+    with scan_service.session_factory()() as session:
+        session.get(ScanRow, "live").status = "success"
+        session.commit()
+    assert len(client.get("/api/scans/live/findings").json()) == 3  # a finished scan shows what the pipeline stored

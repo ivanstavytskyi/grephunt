@@ -330,3 +330,72 @@ def test_url_matching_rules():
     assert _match("*/*", "/:id", False) is None  # no literal segment, no match
     assert _match("/admin/api/users", "/api/users", False) is None  # literal prefix needs a mounted router
     assert _match("/admin/api/users", "/api/users", True) is not None
+
+
+# --- exports ----------------------------------------------------------------------------------
+
+
+def test_canvas_and_mermaid_exports_apply_edits(tmp_path: Path):
+    from grephunt.project_map.export import to_canvas, to_mermaid
+
+    built = json.loads(build_project_map(ROOT / "samples" / "vuln_flask").model_dump_json())
+    overlay = {"version": 1, "views": {"architecture": {
+        "labels": {"f:app.py": "Main Flask app"},
+        "notes": {"r:GET /user": "SQL injection via id"},
+        "blocks": [{"id": "b:waf", "label": "WAF", "x": -400, "y": 0}],
+        "links": [{"id": "l:1", "source": "b:waf", "target": "r:GET /user", "label": "filters"}],
+        "positions": {"f:app.py": {"x": 900, "y": 40}},
+    }}}
+    findings = [{"severity": "high", "location": {"path": "/src/app.py", "start_line": 17}, "context": {"routes": [{"id": "r:GET /user"}]}}]
+    canvas = to_canvas(built, "architecture", overlay, findings)
+    texts = {node["text"].splitlines()[0]: node for node in canvas["nodes"] if node["type"] == "text"}
+    assert "**Main Flask app**" in texts and texts["**Main Flask app**"]["x"] == 900
+    assert texts["**Main Flask app**"]["color"] == "2"  # high finding in app.py
+    assert "SQL injection via id" in texts["**GET /user**"]["text"] and texts["**GET /user**"]["color"] == "2"
+    assert "**WAF**" in texts
+    by_id = {node["id"]: node for node in canvas["nodes"]}
+    assert any(edge.get("label") == "filters" for edge in canvas["edges"])
+    db = next(edge for edge in canvas["edges"] if by_id[edge["toNode"]]["text"].startswith("**SQLite"))
+    assert db["color"] == "1"  # the query is built from variables
+    for edge in canvas["edges"]:
+        assert edge["fromNode"] in by_id and edge["toNode"] in by_id
+
+    mermaid = to_mermaid(built, "architecture", overlay)
+    assert mermaid.startswith("flowchart LR")
+    assert 'subgraph route["Routes"]' in mermaid and "Main Flask app" in mermaid and '-.->|"filters"|' in mermaid
+    assert "linkStyle" in mermaid
+
+
+def test_files_export_is_folder_level_and_written_with_the_map(tmp_path: Path):
+    from grephunt.project_map import write_project_map
+    from grephunt.project_map.export import to_canvas
+
+    _write(tmp_path / "p", {
+        "web/a/x.js": "import y from '../b/y'\n",
+        "web/b/y.js": "",
+        "api/main.py": "",
+    })
+    built = build_project_map(tmp_path / "p")
+    canvas = to_canvas(json.loads(built.model_dump_json()), "files")
+    labels = sorted(node["text"].splitlines()[0] for node in canvas["nodes"])
+    assert labels == ["**api/**", "**web/a/**", "**web/b/**"]
+    assert len(canvas["edges"]) == 1 and canvas["edges"][0]["label"] == "1 imports"
+    write_project_map(built, tmp_path / "out")
+    assert json.loads((tmp_path / "out" / "project_map.canvas").read_text(encoding="utf-8"))["nodes"]
+    assert (tmp_path / "out" / "project_map.mmd").read_text(encoding="utf-8").startswith("flowchart LR")
+
+
+def test_export_endpoint(tmp_path: Path, monkeypatch):
+    _use_db(tmp_path, monkeypatch)
+    project = ROOT / "samples" / "vuln_flask"
+    _scan_row("exp1", project)
+    asyncio.run(scan_service._build_map("exp1", project, lambda event: None))
+    client = TestClient(console.app)
+    canvas = client.get("/api/scans/exp1/map/export", params={"format": "canvas"})
+    assert canvas.status_code == 200 and "vuln_flask-architecture.canvas" in canvas.headers["content-disposition"]
+    assert canvas.json()["nodes"]
+    mermaid = client.get("/api/scans/exp1/map/export", params={"format": "mermaid", "view": "files"})
+    assert mermaid.status_code == 200 and mermaid.text.startswith("flowchart LR")
+    assert client.get("/api/scans/exp1/map/export", params={"format": "svg"}).status_code == 400
+    _scan_row("exp2", project)
+    assert client.get("/api/scans/exp2/map/export").status_code == 409
