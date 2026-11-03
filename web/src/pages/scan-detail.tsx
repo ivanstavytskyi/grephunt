@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Finding, ScanEvent, Severity, TaskSummary } from "@/api/types";
 import { ExplainAi } from "@/components/explain-ai";
 import { ScanExportButton } from "@/components/scan-export-button";
@@ -9,7 +9,10 @@ import { findingKey, FindingsTable } from "@/components/findings-table";
 import { SelectMenu } from "@/components/select-menu";
 import { PanelBoundary } from "@/components/panel-boundary";
 import { ScanMap } from "@/components/scan-map";
-import { Check, Pencil, Trash2 } from "lucide-react";
+import { Check, Network, Pencil, Trash2 } from "lucide-react";
+
+// React Flow and ELK load only when the map is opened.
+const ProjectMapSheet = lazy(() => import("@/components/project-map"));
 import { Snippet } from "@/components/snippet";
 import { FindingCode } from "@/components/code-view";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +62,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
   const [selected, setSelected] = useState<Finding | null>(null);
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   const [editing, setEditing] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const finishEditing = () => {
     setEditing(false);
     setChecked(new Set());
@@ -273,6 +277,12 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
 
       {scan.data?.error && <p className="mt-4 text-sm text-rose-300">{scan.data.error}</p>}
 
+      {mapOpen && (
+        <Suspense fallback={<div className="fixed inset-0 z-50 bg-ink-bg p-6 text-sm text-ink-muted">Loading the project map…</div>}>
+          <ProjectMapSheet scanId={scanId} label={scan.data?.target_label} findings={rows} onClose={() => setMapOpen(false)} />
+        </Suspense>
+      )}
+
       <div className="mt-6 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
         <label className="block">
@@ -344,6 +354,17 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {!scan.data?.target_path?.toLowerCase().endsWith(".tar") && (
+                <button
+                  type="button"
+                  onClick={() => setMapOpen(true)}
+                  title="Architecture and file map of the scanned project"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-ink-line bg-ink-panel px-3.5 text-sm font-medium text-ink-text hover:bg-ink-raised"
+                >
+                  <Network className="size-4" />
+                  Project map
+                </button>
+              )}
               {editing ? (
                 <>
                   <span className="text-xs text-ink-muted">
