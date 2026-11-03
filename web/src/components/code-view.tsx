@@ -95,11 +95,13 @@ function SourceLines({ view, finding, compact }: { view: SourceView; finding: Fi
   }, [view]);
 
   const width = String(view.start + view.lines.length).length;
+  const places = finding.lines && finding.lines.length > 1 ? new Set(finding.lines) : null;
+  const calloutLine = places ? Math.min(...finding.lines!) : view.focus.end;
   return (
     <div className={cn("overflow-auto rounded-md border border-ink-line bg-black/30 font-mono text-xs leading-5", compact ? "max-h-72" : "h-full")}>
       {view.lines.map((text, index) => {
         const number = view.start + index;
-        const inFocus = number >= view.focus.start && number <= view.focus.end;
+        const inFocus = places ? places.has(number) : number >= view.focus.start && number <= view.focus.end;
         const marks = marksByLine.get(number) ?? [];
         return (
           <div key={number} id={`L${number}`} ref={number === view.focus.start ? focusRef : undefined}>
@@ -112,7 +114,7 @@ function SourceLines({ view, finding, compact }: { view: SourceView; finding: Fi
               </span>
               <code className="whitespace-pre pr-4 text-ink-text">{highlight(text, view.language)}</code>
             </div>
-            {number === view.focus.end && (
+            {number === calloutLine && (
               <div className="ml-[calc(var(--gutter)+0.75rem)] border-l-2 border-transparent py-1 pl-2 pr-3" style={{ ["--gutter" as string]: `${width + 2}ch` }}>
                 <div className={cn("rounded-md px-2 py-1.5 font-sans text-[11px] leading-4 ring-1 ring-inset", MARK_TONE.finding)}>
                   <span className="font-medium">{finding.title}</span>
@@ -137,9 +139,15 @@ function SourceLines({ view, finding, compact }: { view: SourceView; finding: Fi
 function useSource(scanId: string, finding: Finding, context: number, enabled = true) {
   const location = finding.location;
   return useQuery({
-    queryKey: ["source", scanId, location?.path, location?.start_line, location?.end_line, context],
+    queryKey: ["source", scanId, location?.path, location?.start_line, location?.end_line, finding.lines?.join(","), context],
     queryFn: () =>
-      fetchSource(scanId, { path: location?.path ?? "", line: location?.start_line, endLine: location?.end_line, context }),
+      fetchSource(scanId, {
+        path: location?.path ?? "",
+        line: location?.start_line,
+        // Several places: load the span that holds all of them.
+        endLine: finding.lines && finding.lines.length > 1 ? Math.max(...finding.lines) : location?.end_line,
+        context,
+      }),
     enabled: enabled && Boolean(location?.path),
     retry: false,
     staleTime: 60_000,

@@ -49,6 +49,8 @@ export type Finding = {
   };
   snippet: string | null;
   context?: FindingContext;
+  confirmations?: { tool: string; rule_id: string; title: string; line: number | null; severity: string | null }[];
+  lines?: number[];
   evidence: string | null;
   status: string;
   raw_ref: string | null;

@@ -7,8 +7,19 @@ for one issue become one finding.
 from __future__ import annotations
 
 import re
+from collections import Counter
 
-from grephunt.finding_model.record import Category, Finding, Severity
+from grephunt.finding_model.clustering import cluster_by_lines, cluster_by_text
+from grephunt.finding_model.record import Category, Confirmation, Finding, Severity
+from grephunt.finding_model.vuln_class import clean_path, iac_topic, vulnerability_class
+
+CODE_WINDOW = 3
+"""Lines apart that still count as one place in code (a statement split over lines, source and sink lines)."""
+IAC_WINDOW = 15
+"""Lines apart inside one infrastructure resource block."""
+ANCHOR_WINDOW = 3
+"""A finding within this many lines of a database call from the project map is placed on that call."""
+ANCHORED_CLASSES = {"sql-injection", "nosql-injection"}
 
 _RANK = {
     Severity.CRITICAL: 0,
@@ -120,6 +131,183 @@ def _secret_summary(items: list[Finding]) -> Finding:
         message = f"{message} — {note}"
     location = kept.location.model_copy(update={"start_line": first, "end_line": last})
     return kept.model_copy(update={"message": message, "location": location})
+
+
+def _confirmations(items: list[Finding]) -> list[Confirmation]:
+    seen: dict[tuple, Confirmation] = {}
+    for item in items:
+        for confirmation in item.confirmations or [Confirmation(tool=item.tool, rule_id=item.rule_id, title=item.title,
+                                                                 line=item.location.start_line, severity=item.severity.value)]:
+            seen.setdefault((confirmation.tool, confirmation.rule_id, confirmation.line), confirmation)
+    return sorted(seen.values(), key=lambda item: (item.line or 0, item.tool, item.rule_id))
+
+
+def _merge_cluster(items: list[Finding], line: int | None = None) -> Finding:
+    """One finding for one problem: highest severity, union of tools and ids, every report kept as a confirmation."""
+    confirmations = _confirmations(items)
+    kept = _merge_many(items)
+    update: dict = {"confirmations": confirmations}
+    if line is not None and line != kept.location.start_line:
+        end = kept.location.end_line
+        update["location"] = kept.location.model_copy(update={"start_line": line, "end_line": max(line, end or line)})
+    tools = len({item.tool for item in confirmations})
+    if tools > 1:
+        note = f"Reported by {tools} tools: " + ", ".join(dict.fromkeys(f"{item.tool} ({item.rule_id})" for item in confirmations))
+        update["evidence"] = note[:600]
+    return kept.model_copy(update=update)
+
+
+def _place(items: list[Finding], anchors: set[int]) -> int | None:
+    """Where the problem is: the database call the reports point at, else the line most tools name."""
+    lines = [item.location.start_line for item in items if item.location.start_line]
+    if not lines:
+        return None
+    near = [anchor for anchor in anchors if any(abs(anchor - line) <= ANCHOR_WINDOW for line in lines)]
+    if near:
+        return min(near, key=lambda anchor: (min(abs(anchor - line) for line in lines), anchor))
+    votes = Counter(lines)
+    return min(votes, key=lambda line: (-votes[line], line))
+
+
+def _split_repeated_rules(cluster: list[Finding]) -> list[list[Finding]]:
+    """One rule firing on two lines is two problems (two queries in a row): split around those lines."""
+    by_source: dict[tuple[str, str], set[int]] = {}
+    for item in cluster:
+        if item.location.start_line:
+            by_source.setdefault((item.tool, item.rule_id), set()).add(item.location.start_line)
+    centers = max(by_source.values(), key=len, default=set())
+    if len(centers) < 2:
+        return [cluster]
+    parts: dict[int, list[Finding]] = {center: [] for center in centers}
+    loose: list[Finding] = []
+    for item in cluster:
+        line = item.location.start_line
+        if line is None:
+            loose.append(item)
+            continue
+        parts[min(centers, key=lambda center: (abs(center - line), center))].append(item)
+    groups = [items for items in parts.values() if items]
+    if loose:
+        groups[0].extend(loose)
+    return groups
+
+
+def _snap(line: int | None, anchors: set[int]) -> int | None:
+    if line is None or not anchors:
+        return line
+    near = [anchor for anchor in anchors if abs(anchor - line) <= ANCHOR_WINDOW]
+    return min(near, key=lambda anchor: (abs(anchor - line), anchor)) if near else line
+
+
+def _canonical_paths(findings: list[Finding]) -> dict[str, str]:
+    """src/x and x in one scan are one file: some tools print the container mount without its slash."""
+    paths = {clean_path(item.location.path or "") for item in findings}
+    return {path: path[4:] for path in paths if path.startswith("src/") and path[4:] in paths}
+
+
+def _correlate_places(findings: list[Finding], anchors: dict[str, set[int]]) -> list[Finding]:
+    """Code and misconfiguration findings: one finding per problem and place."""
+    classified: dict[tuple, list[Finding]] = {}
+    unclassified: dict[tuple, list[Finding]] = {}
+    canonical = _canonical_paths(findings)
+    for finding in findings:
+        path = clean_path(finding.location.path or finding.location.url or "")
+        path = canonical.get(path, path)
+        if finding.category is Category.MISCONFIG:
+            kind = iac_topic(finding.rule_id, finding.title, finding.message)
+        else:
+            kind = vulnerability_class(finding.cwe, finding.rule_id, finding.title)
+        key = (finding.category.value, finding.location.kind.value, path)
+        if kind:
+            classified.setdefault((*key, kind), []).append(finding)
+        else:
+            unclassified.setdefault(key, []).append(finding)
+
+    merged: list[Finding] = []
+    kinds: dict[int, str] = {}
+    for (category, _, path, kind), group in classified.items():
+        file_anchors = anchors.get(path, set()) if kind in ANCHORED_CLASSES else set()
+        if category == Category.MISCONFIG.value:
+            name = path.rsplit("/", 1)[-1].lower()
+            window = None if name.startswith("dockerfile") or name.endswith(".dockerfile") else IAC_WINDOW
+        else:
+            window = CODE_WINDOW
+        lines = [_snap(item.location.start_line, file_anchors) for item in group]
+        for indices in cluster_by_lines(lines, window):
+            for part in _split_repeated_rules([group[index] for index in indices]):
+                finding = _merge_cluster(part, _place(part, file_anchors))
+                kinds[id(finding)] = kind
+                merged.append(finding)
+
+    for (category, _, _path), group in unclassified.items():
+        window = IAC_WINDOW if category == Category.MISCONFIG.value else CODE_WINDOW
+        texts = [f"{item.rule_id} {item.title} {item.message[:300]}" for item in group]
+        lines = [item.location.start_line for item in group]
+        sources = [(item.tool, item.rule_id) for item in group]
+
+        def same_source(left: int, right: int, sources: list[tuple[str, str]] = sources) -> bool:
+            return sources[left] == sources[right]
+
+        for indices in cluster_by_text(texts, lines, window, same_source=same_source):
+            part = [group[index] for index in indices]
+            merged.append(_merge_cluster(part, _place(part, set())))
+    return _fold_repeats(merged, kinds)
+
+
+def _fold_repeats(findings: list[Finding], kinds: dict[int, str]) -> list[Finding]:
+    """The same problem at several places in one file is one finding with a list of lines.
+
+    "Unrestricted Security Group Ingress" on lines 13, 21, and 29 is one row to fix in one
+    file; every line stays listed and highlighted in the code view.
+    """
+    by_file: dict[tuple, list[Finding]] = {}
+    for finding in findings:
+        kind = kinds.get(id(finding)) or "unclassified"
+        by_file.setdefault((finding.category.value, clean_path(finding.location.path or ""), kind), []).append(finding)
+    groups: list[list[Finding]] = []
+    for items in by_file.values():
+        # Fold only findings that share a rule: one check firing at several places.
+        parent = list(range(len(items)))
+
+        def find(index: int, parent: list[int] = parent) -> int:
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        owner: dict[tuple[str, str], int] = {}
+        for index, item in enumerate(items):
+            sources = {(confirmation.tool, confirmation.rule_id) for confirmation in item.confirmations} or {(item.tool, item.rule_id)}
+            for source in sources:
+                if source in owner:
+                    parent[find(index)] = find(owner[source])
+                else:
+                    owner[source] = index
+        clusters: dict[int, list[Finding]] = {}
+        for index, item in enumerate(items):
+            clusters.setdefault(find(index), []).append(item)
+        groups.extend(clusters.values())
+    folded: list[Finding] = []
+    for items in groups:
+        if len(items) == 1:
+            folded.append(items[0])
+            continue
+        items.sort(key=lambda item: (item.location.start_line or 0))
+        lines = sorted({item.location.start_line for item in items if item.location.start_line})
+        kept = _merge_many(items)
+        confirmations = _confirmations(items)
+        first = lines[0] if lines else None
+        update: dict = {"confirmations": confirmations, "lines": lines}
+        if first is not None:
+            update["location"] = kept.location.model_copy(update={"start_line": first, "end_line": first})
+        note = f"{len(lines)} places in this file (lines {', '.join(map(str, lines[:20]))}{', …' if len(lines) > 20 else ''})"
+        message = (kept.message or kept.title).rstrip()
+        update["message"] = f"{message} — {note}" if note not in message else message
+        tools = len({item.tool for item in confirmations})
+        if tools > 1:
+            update["evidence"] = ("Reported by " + f"{tools} tools: " + ", ".join(dict.fromkeys(f"{item.tool} ({item.rule_id})" for item in confirmations)))[:600]
+        folded.append(kept.model_copy(update=update))
+    return folded
 
 
 def _correlate_by_key(findings: list[Finding]) -> list[Finding]:
@@ -240,8 +428,13 @@ def _correlate_dependencies(findings: list[Finding]) -> list[Finding]:
     return merged
 
 
-def correlate(findings: list[Finding]) -> list[Finding]:
-    """Keep the highest severity and union tools, CWE, and vulnerability ids."""
+def correlate(findings: list[Finding], anchors: dict[str, set[int]] | None = None) -> list[Finding]:
+    """Keep the highest severity and union tools, CWE, and vulnerability ids.
+
+    anchors: project-relative path -> lines of database calls from the project map.
+    Code findings near such a call are placed on it, so a SQL injection reported on
+    the input line by one tool and on the query line by another is one finding.
+    """
     code: list[Finding] = []
     secrets: list[Finding] = []
     dependencies: list[Finding] = []
@@ -252,4 +445,4 @@ def correlate(findings: list[Finding]) -> list[Finding]:
             dependencies.append(finding)
         else:
             code.append(finding)
-    return _correlate_by_key(code) + _correlate_secrets(secrets) + _correlate_dependencies(dependencies)
+    return _correlate_places(code, anchors or {}) + _correlate_secrets(secrets) + _correlate_dependencies(dependencies)

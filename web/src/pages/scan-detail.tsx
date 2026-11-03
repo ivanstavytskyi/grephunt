@@ -481,6 +481,36 @@ function ScanClock({
   );
 }
 
+function FindingConfirmations({ finding }: { finding: Finding }) {
+  const confirmations = finding.confirmations ?? [];
+  const tools = [...new Set(confirmations.map((item) => item.tool))];
+  const places = finding.lines ?? [];
+  if (tools.length < 2 && places.length < 2) return null;
+  return (
+    <div className="space-y-1.5 rounded-md border border-ink-line bg-black/20 px-3 py-2 text-xs">
+      {tools.length > 1 && (
+        <p className="text-signal">
+          Confirmed by {tools.length} tools: {tools.join(", ")}
+        </p>
+      )}
+      {places.length > 1 && (
+        <p className="text-ink-text/90">
+          {places.length} places in this file: lines <span className="font-mono">{places.join(", ")}</span>
+        </p>
+      )}
+      <ul className="max-h-40 space-y-0.5 overflow-auto font-mono text-[11px] leading-4 text-ink-muted">
+        {confirmations.map((item, index) => (
+          <li key={index} className="flex gap-2">
+            <span className="w-8 shrink-0 text-right">{item.line ?? "—"}</span>
+            <span className="shrink-0 text-ink-text/80">{item.tool}</span>
+            <span className="truncate" title={item.title}>{item.rule_id}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function FindingMapContext({ finding }: { finding: Finding }) {
   const context = finding.context;
   if (!context?.routes?.length && !context?.database) return null;
@@ -516,6 +546,7 @@ function FindingDetail({ scanId, finding }: { scanId: string; finding: Finding }
         <p className="font-mono text-xs text-ink-muted">{locationLabel(finding.location)}</p>
       )}
       <FindingMapContext finding={finding} />
+      <FindingConfirmations finding={finding} />
       <FindingCode
         key={`${finding.fingerprint}:${finding.correlation_key}`}
         scanId={scanId}

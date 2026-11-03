@@ -38,3 +38,5 @@ environment:
 cap_drop:
   - ALL
 no_new_privileges: true
+# Off by default: another default tool covers this category (see scanner_catalog/ui.yaml).
+default_enabled: false

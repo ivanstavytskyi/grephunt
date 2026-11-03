@@ -115,7 +115,21 @@ def _relative_path(uri: str, project_root: Path | None) -> str:
     for prefix in prefixes:
         if prefix and path.startswith(prefix):
             return path[len(prefix):].lstrip("/")
-    return path.lstrip("/")
+    path = path.lstrip("/")
+    # Tools that run below the mount (KICS: ../../src/x) or print it without the slash (Checkov: src/x).
+    candidates = [path]
+    trimmed = path
+    while trimmed.startswith("../"):
+        trimmed = trimmed[3:]
+    if trimmed != path:
+        candidates.append(trimmed)
+    if trimmed.startswith("src/"):
+        candidates.append(trimmed[4:])
+    if project_root is not None:
+        for candidate in candidates:
+            if (project_root / candidate).exists():
+                return candidate
+    return candidates[-1] if trimmed != path else path
 
 
 def _relationship_cwes(rule: dict) -> set[str]:

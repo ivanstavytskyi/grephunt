@@ -7,7 +7,8 @@ strongest kind of evidence GrepHunt has without running the application.
 from __future__ import annotations
 
 from collections import defaultdict
-from pathlib import PurePosixPath
+
+from grephunt.finding_model.vuln_class import clean_path
 
 NEAR_LINES = 2
 MAX_ROUTES = 3
@@ -62,23 +63,19 @@ class MapIndex:
         return out or None
 
 
-def clean_path(path: str) -> str:
-    """A scanner's path as a project-relative path.
-
-    Scanners report /src/app.py (container mount), ./app.py, or, when they ran from a
-    folder below the mount (KICS), ../../src/app.py.
-    """
-    value = path.replace("\\", "/").strip()
-    for prefix in ("file://", "/src/", "./"):
-        value = value.removeprefix(prefix)
-    if value.startswith("../"):
-        while value.startswith("../"):
-            value = value[3:]
-        value = value.removeprefix("src/")
-    return str(PurePosixPath(value.lstrip("/"))) if value else ""
 
 
-_relative = clean_path
+def database_anchors(project_map: dict) -> dict[str, set[int]]:
+    """Project-relative path -> lines with a database call. Correlation places SQL findings on these lines."""
+    anchors: dict[str, set[int]] = defaultdict(set)
+    for edge in (project_map.get("architecture") or {}).get("edges", []):
+        if edge.get("kind") != "db" or not str(edge.get("source", "")).startswith("f:"):
+            continue
+        path = edge["source"][2:]
+        for item in edge.get("evidence", []):
+            if item.get("path") == path and item.get("line"):
+                anchors[path].add(int(item["line"]))
+    return dict(anchors)
 
 
 def attach_context(findings: list[dict], project_map: dict) -> list[dict]:
@@ -90,7 +87,7 @@ def attach_context(findings: list[dict], project_map: dict) -> list[dict]:
         location = finding.get("location") or {}
         if not location.get("path"):
             continue
-        context = index.context(_relative(location["path"]), location.get("start_line"))
+        context = index.context(clean_path(location["path"]), location.get("start_line"))
         if context:
             finding["context"] = context
     return findings

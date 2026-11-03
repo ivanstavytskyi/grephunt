@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from pathlib import Path
 
@@ -54,6 +55,19 @@ def emit_tool_findings(
         )
 
 
+def _map_anchors(out_dir: Path) -> dict[str, set[int]]:
+    """Database call lines from the project map built before the scanners, if there is one."""
+    path = out_dir / "project_map.json"
+    if not path.is_file():
+        return {}
+    try:
+        from grephunt.project_map.finding_context import database_anchors
+
+        return database_anchors(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return {}
+
+
 async def run_scan(
     project: Path,
     out_dir: Path,
@@ -87,7 +101,7 @@ async def run_scan(
     raw: list[Finding] = [finding for run in runs for finding in run.findings]
     suppressed = suppressed_packages(project)
     kept = [finding for finding in raw if accept_finding(finding, options, suppressed)]
-    findings = correlate(kept)
+    findings = correlate(kept, _map_anchors(out_dir))
 
     sarif_files = [run.sarif_path for run in runs if run.sarif_path and run.sarif_path.exists()]
     merged = merge_sarif_files(sarif_files, out_dir / "merged.sarif") if sarif_files else None
