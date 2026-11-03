@@ -6,7 +6,7 @@ import { filterFindings, type FindingsFilterState } from "@/lib/findings-filter"
 import { locationLabel } from "@/lib/utils";
 import { ExploitabilityMeter } from "@/components/exploitability";
 
-const ROW_HEIGHT = 52;
+const ROW_HEIGHT = 64;
 const COLUMNS_EDIT = "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_4.5rem_7rem]";
 const COLUMNS_VIEW = "grid-cols-[5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_4.5rem_7rem]";
 
@@ -115,7 +115,7 @@ export const FindingsTable = memo(function FindingsTable({
           return (
             <div
               key={findingKey(finding)}
-              className={`absolute left-0 top-0 grid w-full cursor-pointer ${COLUMNS} border-b border-ink-line/70 hover:bg-ink-raised ${active ? "bg-ink-raised" : ""} ${checked.has(findingKey(finding)) ? "bg-ink-raised/70" : ""}`}
+              className={`absolute left-0 top-0 grid w-full cursor-pointer items-center overflow-hidden ${COLUMNS} border-b border-ink-line/70 hover:bg-ink-raised ${active ? "bg-ink-raised" : ""} ${checked.has(findingKey(finding)) ? "bg-ink-raised/70" : ""}`}
               style={{ height: ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
               onClick={() => (editing ? onToggle(finding, !checked.has(findingKey(finding))) : onSelect(finding))}
             >
@@ -153,7 +153,7 @@ export const FindingsTable = memo(function FindingsTable({
                   </p>
                 )}
               </div>
-              <div className="flex items-start px-3 pb-2.5 pt-3">
+              <div className="flex px-3 py-2">
                 {finding.exploitability ? <ExploitabilityMeter exploitability={finding.exploitability} /> : <span className="text-xs text-ink-muted">—</span>}
               </div>
               <div className="px-3 py-2.5 font-mono text-xs text-ink-muted">{toolLabel(finding)}</div>
