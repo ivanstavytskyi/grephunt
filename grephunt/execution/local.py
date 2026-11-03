@@ -33,11 +33,15 @@ class LocalRunner:
     async def run(self, request: RunRequest) -> RunOutcome:
         binary = resolve_binary(request.binary) or request.binary
         started = time.monotonic()
+        # Only variables a hook asks for. The descriptor's container environment (HOME=/tmp and the like)
+        # is for the container and would break a tool installed on this machine.
+        env = {**os.environ, **request.environment} if request.environment else None
         process = await asyncio.create_subprocess_exec(
             binary,
             *request.args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=request.timeout_sec)

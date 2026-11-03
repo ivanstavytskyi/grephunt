@@ -44,6 +44,9 @@ def list_tools() -> list[dict]:
             "version": tool.descriptor.version,
             "network": tool.descriptor.network,
             "prepare_network": tool.descriptor.prepare_network,
+            "scans_images": bool(getattr(tool.hook, "supports_image", lambda: False)()),
+            "default_enabled": tool.descriptor.default_enabled,
+            "cloud": tool.descriptor.cloud,
         }
         for tool in load_tools().values()
     ]
@@ -55,7 +58,15 @@ def _scan_dir(scan_id: str) -> Path:
     return path
 
 
-def create_scan(target: Path, label: str, scanners: list[str], configs: list[str], use_docker: bool) -> str:
+def create_scan(
+    target: Path,
+    label: str,
+    scanners: list[str],
+    configs: list[str],
+    use_docker: bool,
+    target_kind: str = "source",
+    image_format: str = "docker",
+) -> str:
     known = load_tools()
     unknown = [name for name in scanners if name not in known]
     if unknown:
@@ -83,20 +94,36 @@ def create_scan(target: Path, label: str, scanners: list[str], configs: list[str
         session.commit()
     options_configs = configs or ["p/default"]
     task = asyncio.get_running_loop().create_task(
-        _execute(scan_id, target, scanners, options_configs, use_docker)
+        _execute(scan_id, target, scanners, options_configs, use_docker, target_kind, image_format)
     )
     _TASKS[scan_id] = task
     return scan_id
 
 
-async def _execute(scan_id: str, target: Path, scanners: list[str], configs: list[str], use_docker: bool) -> None:
+async def _execute(
+    scan_id: str,
+    target: Path,
+    scanners: list[str],
+    configs: list[str],
+    use_docker: bool,
+    target_kind: str = "source",
+    image_format: str = "docker",
+) -> None:
     if use_docker:
         await asyncio.to_thread(purge_stale_grephunt_containers)
     sink = EventSink(scan_id, session_factory())
     tools = load_tools()
     selected = [tools[name] for name in scanners]
-    excludes = collect_excludes(target, None, use_defaults=True)
-    options = ScanOptions(configs=configs, excludes=excludes, use_docker=use_docker, tenant_id=DEFAULT_TENANT)
+    # Default excludes (tests, build, dist, out) are about source trees. In an image they would hide packages.
+    excludes = collect_excludes(target, None, use_defaults=True) if target_kind == "source" else []
+    options = ScanOptions(
+        configs=configs,
+        excludes=excludes,
+        use_docker=use_docker,
+        tenant_id=DEFAULT_TENANT,
+        target_kind=target_kind,
+        image_format=image_format,
+    )
     try:
         result = await run_scan(target, _scan_dir(scan_id), selected, options, on_event=sink, scan_id=scan_id)
         await asyncio.to_thread(sink.close)

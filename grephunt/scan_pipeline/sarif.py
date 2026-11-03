@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from grephunt.finding_model.redaction import mask_secrets
 from grephunt.finding_model.record import Category, Finding, Location, LocationKind, Module, Severity
 
 _CWE_RE = re.compile(r"CWE-\d+")
@@ -117,6 +118,22 @@ def _relative_path(uri: str, project_root: Path | None) -> str:
     return path.lstrip("/")
 
 
+def _relationship_cwes(rule: dict) -> set[str]:
+    """CWE ids given as rule relationships to a CWE taxonomy (gosec, CodeQL), not as tags."""
+    found: set[str] = set()
+    for relation in rule.get("relationships") or []:
+        target = relation.get("target") if isinstance(relation, dict) else None
+        if not isinstance(target, dict):
+            continue
+        component = target.get("toolComponent") or {}
+        if str(component.get("name") or "").upper() != "CWE":
+            continue
+        value = str(target.get("id") or "").upper().removeprefix("CWE-")
+        if value.isdigit():
+            found.add(f"CWE-{int(value)}")
+    return found
+
+
 def _tool_version(run: dict) -> str | None:
     driver = run.get("tool", {}).get("driver", {})
     version = driver.get("semanticVersion") or driver.get("version")
@@ -132,11 +149,12 @@ def parse_sarif(
     module: Module = Module.SAST,
     fallback_version: str | None = None,
     refine=None,
+    trust_reported_version: bool = True,
 ) -> list[Finding]:
     data = json.loads(sarif_path.read_text(encoding="utf-8"))
     findings: list[Finding] = []
     for run_index, run in enumerate(data.get("runs", [])):
-        version = _tool_version(run) or fallback_version
+        version = (_tool_version(run) if trust_reported_version else None) or fallback_version
         rules = {rule["id"]: rule for rule in run.get("tool", {}).get("driver", {}).get("rules", [])}
         for result_index, result in enumerate(run.get("results", [])):
             rule_id = result.get("ruleId", "unknown")
@@ -145,7 +163,11 @@ def parse_sarif(
             location = (result.get("locations") or [{}])[0].get("physicalLocation", {})
             region = location.get("region", {})
             message = result.get("message", {}).get("text", "")
-            cwe = sorted({match for tag in tags for match in _CWE_RE.findall(tag)})
+            listed = rule.get("properties", {}).get("cwe") or []  # Snyk Code: properties.cwe
+            cwe = sorted(
+                {match for tag in [*tags, *(listed if isinstance(listed, list) else [])] for match in _CWE_RE.findall(str(tag))}
+                | _relationship_cwes(rule)
+            )
             cve = sorted(
                 {
                     match.upper() if match.upper().startswith("CVE") else match
@@ -181,5 +203,13 @@ def parse_sarif(
             )
             if refine is not None:
                 finding = refine(finding, result, rule)
+            if finding.category is Category.SECRET:
+                finding = finding.model_copy(
+                    update={
+                        "snippet": mask_secrets(finding.snippet),
+                        "message": mask_secrets(finding.message) or "",
+                        "title": mask_secrets(finding.title) or finding.title,
+                    }
+                )
             findings.append(finding)
     return findings

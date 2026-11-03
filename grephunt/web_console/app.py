@@ -3,22 +3,26 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from grephunt.integrations import snyk as snyk_integration
 from grephunt.web_console.ai_explain import DEEPSEEK_MODELS, GEMINI_MODELS, check_key, explain_finding
 from grephunt.web_console.github_source import download_github_zip
 from grephunt.web_console.uploads import safe_extract
+from grephunt.scan_pipeline.image_archive import detect_image_format
 from grephunt.web_console.scans import (
     create_scan,
     get_events,
@@ -34,6 +38,8 @@ from grephunt.execution.docker import docker_daemon_ready, purge_stale_grephunt_
 
 MAX_UPLOAD = 500_000_000
 MAX_UPLOAD_LABEL = f"{MAX_UPLOAD // 1_000_000} MB"
+MAX_IMAGE_UPLOAD = int(os.environ.get("GREPHUNT_MAX_IMAGE_MB", "4096")) * 1_000_000
+MAX_IMAGE_LABEL = f"{MAX_IMAGE_UPLOAD // 1_000_000} MB"
 _GITHUB_URL = re.compile(
     r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:/tree/([^?#]+))?/?$"
 )
@@ -177,14 +183,17 @@ def _download_github(url: str) -> tuple[Path, str]:
     return _collapse_root(extracted), label
 
 
-async def _save_upload(upload: UploadFile, destination: Path) -> None:
+async def _save_upload(upload: UploadFile, destination: Path, limit: int = MAX_UPLOAD) -> None:
     size = 0
+    label = f"{limit // 1_000_000} MB"
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as handle:
         while chunk := await upload.read(1024 * 1024):
             size += len(chunk)
-            if size > MAX_UPLOAD:
-                raise HTTPException(status_code=413, detail=f"archive is larger than {MAX_UPLOAD_LABEL}")
+            if size > limit:
+                handle.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail=f"archive is larger than {label}")
             handle.write(chunk)
 
 
@@ -281,6 +290,9 @@ async def start(
     if not names:
         raise HTTPException(status_code=400, detail="select at least one scanner")
 
+    target_kind = "source"
+    image_format = "docker"
+
     if github_url and github_url.strip():
         try:
             target, label = await asyncio.to_thread(_download_github, github_url.strip())
@@ -288,6 +300,18 @@ async def start(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     elif files:
         target, label = await _save_folder(files, relative_paths or [], folder_name or "project")
+    elif archive is not None and archive.filename and archive.filename.lower().endswith(".tar"):
+        name = Path(archive.filename).name
+        workspace = DATA_DIR / "uploads" / f"image-{uuid.uuid4().hex[:12]}"
+        target = workspace / "image.tar"
+        await _save_upload(archive, target, MAX_IMAGE_UPLOAD)
+        try:
+            image_format = detect_image_format(target)
+        except ValueError as exc:
+            target.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        target_kind = "image"
+        label = f"{name} (image)"
     elif archive is not None and archive.filename:
         scan_token = Path(archive.filename).stem or "project"
         workspace = DATA_DIR / "uploads" / scan_token
@@ -321,14 +345,30 @@ async def start(
         target = _collapse_root(extracted)
     elif path and path.strip():
         target = Path(path.strip().strip('"').strip("'")).expanduser().resolve()
-        if not target.is_dir():
+        if target.is_file() and target.suffix.lower() == ".tar":
+            try:
+                image_format = detect_image_format(target)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            target_kind = "image"
+            label = f"{target.name} (image)"
+        elif not target.is_dir():
             raise HTTPException(status_code=400, detail=f"directory not found: {target}")
-        label = target.name
+        else:
+            label = target.name
     else:
         raise HTTPException(status_code=400, detail="provide a folder path or upload an archive")
 
     try:
-        scan_id = create_scan(target, label, names, config_list or ["p/default"], use_docker.lower() not in {"0", "false", "no"})
+        scan_id = create_scan(
+            target,
+            label,
+            names,
+            config_list or ["p/default"],
+            use_docker.lower() not in {"0", "false", "no"},
+            target_kind=target_kind,
+            image_format=image_format,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return get_scan(scan_id)
@@ -395,6 +435,46 @@ def _preview_rules(config: str) -> dict:
         "shown": len(shown),
         "rules": shown,
     }
+
+
+def _same_origin(request: Request) -> None:
+    """A page on another site can send a POST here (CORS only hides the answer). The account
+    endpoints accept only the console itself."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        return
+    host = request.headers.get("host", "")
+    allowed = {f"http://{host}", f"https://{host}", "http://127.0.0.1:5173", "http://localhost:5173"}
+    if origin not in allowed:
+        raise HTTPException(status_code=403, detail="request from another site")
+
+
+@app.get("/api/integrations/snyk")
+def snyk_status() -> dict:
+    return snyk_integration.LOGIN.status()
+
+
+@app.post("/api/integrations/snyk/login")
+def snyk_login(request: Request) -> dict:
+    """Start the Snyk CLI's OAuth login. The console polls the status for the app.snyk.io address
+    and opens it in a popup; Snyk redirects back to the CLI on 127.0.0.1."""
+    _same_origin(request)
+    return snyk_integration.LOGIN.start()
+
+
+@app.post("/api/integrations/snyk/cancel")
+def snyk_cancel(request: Request) -> dict:
+    _same_origin(request)
+    snyk_integration.LOGIN.cancel()
+    return snyk_integration.LOGIN.status()
+
+
+@app.post("/api/integrations/snyk/logout")
+def snyk_logout(request: Request) -> dict:
+    _same_origin(request)
+    snyk_integration.LOGIN.cancel()
+    snyk_integration.disconnect()
+    return snyk_integration.LOGIN.status()
 
 
 @app.get("/api/ai/models")

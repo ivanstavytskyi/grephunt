@@ -2,13 +2,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@/lib/nav";
 import { Archive, FolderOpen, Minus, Plus, ScrollText } from "lucide-react";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fetchTools, startScan } from "@/lib/api";
+import { SnykConnect } from "@/components/snyk-connect";
+import { fetchTools, startScan, type SnykStatus } from "@/lib/api";
 
 const schema = z.object({
   configs: z.string(),
@@ -17,12 +18,26 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+const IMAGE_HINT = "Docker image: docker save -o app.tar, up to 4 GB";
+
+function isImageArchive(file: File | null): boolean {
+  return Boolean(file && file.name.toLowerCase().endsWith(".tar"));
+}
+
+function isAcceptedArchive(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.endsWith(".zip") || lower.endsWith(".tar");
+}
+
 export function NewScanPage() {
   const tools = useQuery({ queryKey: ["tools"], queryFn: fetchTools });
   const [selected, setSelected] = useState<string[]>(["semgrep", "trivy"]);
   const [archive, setArchive] = useState<File | null>(null);
   const [folder, setFolder] = useState<File[] | null>(null);
   const zipInput = useRef<HTMLInputElement>(null);
+  const imageMode = isImageArchive(archive);
+  const [snykConnected, setSnykConnected] = useState(false);
+  const onSnyk = useCallback((status: SnykStatus) => setSnykConnected(status.connected), []);
   const folderInput = useRef<HTMLInputElement>(null);
   const { navigate } = useNavigation();
   const queryClient = useQueryClient();
@@ -31,13 +46,36 @@ export function NewScanPage() {
     defaultValues: { configs: "https://semgrep.dev/c/p/default", github: "" },
   });
 
+  const imageTools = (tools.data ?? []).filter((tool) => tool.scans_images).map((tool) => tool.name);
+  const defaultImageTools = (tools.data ?? [])
+    .filter((tool) => tool.scans_images && tool.default_enabled)
+    .map((tool) => tool.name);
+
+  const cloudTools = (tools.data ?? []).filter((tool) => tool.cloud).map((tool) => tool.name);
+  const runnable = (names: string[]) =>
+    names.filter(
+      (name) => (!imageMode || imageTools.includes(name)) && (snykConnected || !cloudTools.includes(name)),
+    );
+
+  const chooseArchive = (file: File | null) => {
+    setArchive(file);
+    if (!file) return;
+    setFolder(null);
+    if (isImageArchive(file)) {
+      setSelected((current) => {
+        const kept = current.filter((name) => imageTools.includes(name));
+        return kept.length > 0 ? kept : defaultImageTools;
+      });
+    }
+  };
+
   const mutation = useMutation({
     mutationFn: (values: FormValues) =>
       startScan({
         archive: folder ? null : archive,
         folder,
         githubUrl: values.github,
-        scanners: selected,
+        scanners: runnable(selected),
         configs: values.configs,
         useDocker: true,
       }),
@@ -54,7 +92,8 @@ export function NewScanPage() {
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-signal">SAST</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">New scan</h1>
       <p className="mt-2 max-w-xl text-sm leading-6 text-ink-muted">
-        Add the project as a zip file, or choose its folder. GrepHunt copies it and scans the code without running it.
+        Add the project as a zip file, choose its folder, or upload a Docker image as a .tar file. GrepHunt copies it and
+        scans it without running it.
       </p>
 
       <form
@@ -64,7 +103,7 @@ export function NewScanPage() {
             toast.error("Add a zip file, choose a project folder, or paste a GitHub link.");
             return;
           }
-          if (selected.length === 0) {
+          if (runnable(selected).length === 0) {
             toast.error("Select at least one scanner");
             return;
           }
@@ -92,45 +131,43 @@ export function NewScanPage() {
               event.preventDefault();
               const file = event.dataTransfer.files?.[0];
               if (!file) return;
-              if (!file.name.toLowerCase().endsWith(".zip")) {
-                toast.error("That file is not a zip. Drop a .zip file, or use Choose a project folder.");
+              if (!isAcceptedArchive(file.name)) {
+                toast.error("Drop a .zip of the project or a Docker image .tar, or use Choose a project folder.");
                 return;
               }
-              setArchive(file);
-              setFolder(null);
+              chooseArchive(file);
             }}
           >
             <button
               type="button"
-              title="Upload one .zip of the project, up to 500 MB. You can also drop the file on this card."
-              aria-label="Upload a zip file. One .zip of the project, up to 500 MB. You can also drop the file on this card."
+              title="Upload one .zip of the project (up to 500 MB) or a Docker image .tar (up to 4 GB). You can also drop the file on this card."
+              aria-label="Upload a zip or an image. One .zip of the project, up to 500 MB, or a Docker image .tar, up to 4 GB. You can also drop the file on this card."
               onClick={() => zipInput.current?.click()}
               className={`flex h-full w-full flex-col items-center justify-center rounded-lg border border-dashed px-4 py-8 text-center ${
                 archive ? "border-signal/60 bg-signal/10" : "border-ink-line bg-ink-panel hover:border-signal/50"
               }`}
             >
               <Archive className="size-5 text-ink-muted" aria-hidden="true" />
-              <span className="mt-2 text-sm">{archive ? archive.name : "Upload a zip file"}</span>
+              <span className="mt-2 text-sm">{archive ? archive.name : "Upload a zip or an image"}</span>
               <span className="mt-1 text-xs leading-5 text-ink-muted">
-                One .zip of the project, up to 500 MB. You can drop it on this card.
+                {imageMode ? IMAGE_HINT : "A .zip of the project (500 MB) or a Docker image .tar (4 GB). You can drop it here."}
               </span>
             </button>
             <input
               ref={zipInput}
               type="file"
-              accept=".zip,application/zip"
+              accept=".zip,.tar,application/zip,application/x-tar"
               className="sr-only"
               tabIndex={-1}
-              aria-label="Upload a zip file of the project, up to 500 MB"
+              aria-label="Upload a zip of the project, up to 500 MB, or a Docker image tar, up to 4 GB"
               onChange={(event) => {
                 const file = event.target.files?.[0] ?? null;
-                if (file && !file.name.toLowerCase().endsWith(".zip")) {
-                  toast.error("That file is not a zip. Choose a .zip file, or use Choose a project folder.");
+                if (file && !isAcceptedArchive(file.name)) {
+                  toast.error("Choose a .zip of the project or a Docker image .tar, or use Choose a project folder.");
                   event.target.value = "";
                   return;
                 }
-                setArchive(file);
-                if (file) setFolder(null);
+                chooseArchive(file);
                 event.target.value = "";
               }}
             />
@@ -173,15 +210,34 @@ export function NewScanPage() {
           </div>
         </div>
 
+        <SnykConnect onChange={onSnyk} />
+
         <fieldset>
           <legend className="mb-2 text-sm">Scanners</legend>
+          {imageMode && (
+            <p className="mb-2 text-xs leading-5 text-ink-muted">
+              Image scan: only scanners that read container images can run. The others are turned off.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {(tools.data ?? []).map((tool) => {
-              const on = selected.includes(tool.name);
+              const needsLogin = tool.cloud && !snykConnected;
+              const blocked = (imageMode && !tool.scans_images) || needsLogin;
+              const on = selected.includes(tool.name) && !blocked;
               return (
                 <button
                   key={tool.name}
                   type="button"
+                  disabled={blocked}
+                  title={
+                    needsLogin
+                      ? "Connect Snyk first"
+                      : blocked
+                        ? `${tool.name} does not scan container images`
+                        : tool.cloud
+                          ? "Runs in the vendor's cloud: project data leaves this machine"
+                          : undefined
+                  }
                   onClick={() =>
                     setSelected((current) =>
                       current.includes(tool.name)
@@ -191,10 +247,14 @@ export function NewScanPage() {
                   }
                   aria-pressed={on}
                   aria-label={`${on ? "Deselect" : "Select"} scanner ${tool.name} ${tool.version}`}
-                  className={`min-w-32 rounded-md border px-4 py-1 text-center leading-tight ${on ? "border-signal/60 bg-signal/10" : "border-ink-line"}`}
+                  className={`min-w-32 rounded-md border px-4 py-1 text-center leading-tight disabled:cursor-not-allowed disabled:opacity-40 ${on ? "border-signal/60 bg-signal/10" : "border-ink-line"}`}
                 >
                   <span className="block font-mono text-sm leading-4">{tool.name}</span>
-                  <span className="font-mono text-[11px] leading-4 text-ink-muted">{tool.version}</span>
+                  <span className="font-mono text-[11px] leading-4 text-ink-muted">
+                    {tool.version}
+                    {tool.scans_images ? " · image" : ""}
+                    {tool.cloud ? " · cloud" : ""}
+                  </span>
                 </button>
               );
             })}

@@ -1,0 +1,53 @@
+name: grype
+module: sast
+binary: grype
+image: anchore/grype:v0.121.0
+version: "0.121.0"
+# The image is scratch: the binary is /grype and is not on PATH.
+container_binary: /grype
+timeout_sec: 1800
+network: false
+prepare_network: true
+user: "65534"
+cpus: "2"
+memory: 3g
+pids_limit: 512
+args:
+  - "dir:{src}"
+  - --output
+  - sarif
+  - --file
+  - "{output}"
+  - --exclude
+  - "./.git/**"
+output_filename: grype.sarif
+image_args:
+  - "{image_ref}"
+  - --output
+  - sarif
+  - --file
+  - "{output}"
+ok_exit_codes: [0]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  GRYPE_DB_CACHE_DIR: /var/grype-db
+  GRYPE_DB_AUTO_UPDATE: "false"
+  # A refresh can fail (no network). Then the last database is used instead of failing the scan.
+  GRYPE_DB_VALIDATE_AGE: "false"
+  GRYPE_CHECK_FOR_APP_UPDATE: "false"
+cache_volumes:
+  # Writable: the database is SQLite, and readers may need its lock files.
+  - name: grephunt-grype-db
+    path: /var/grype-db
+prepare:
+  cache: grephunt-grype-db
+  docker_only: true
+  network: true
+  ttl_hours: 24
+  timeout_sec: 900
+  args: [db, update]
+cap_drop:
+  - ALL
+no_new_privileges: true

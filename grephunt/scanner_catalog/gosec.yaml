@@ -1,0 +1,40 @@
+name: gosec
+module: sast
+binary: gosec
+image: ghcr.io/securego/gosec:2.30.0
+version: "2.30.0"
+timeout_sec: 1200
+# No module downloads. Packages whose dependencies are missing still get the
+# AST rules; the SSA and taint rules skip them (gosec logs "type errors").
+network: false
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+applies_to: ["*.go"]
+args:
+  - -fmt
+  - sarif
+  - -out
+  - "{output}"
+  - -no-fail
+  # Not -quiet: with -quiet and no issues, gosec writes no report at all.
+  - -exclude-dir=vendor
+  - -exclude-dir=node_modules
+  - -exclude-dir=testdata
+  - "{src}/..."
+output_filename: gosec.sarif
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  GOPATH: /tmp/go
+  GOCACHE: /tmp/gocache
+  GOMODCACHE: /tmp/gomod
+  GOFLAGS: -mod=mod
+  GOPROXY: "off"
+  GOTOOLCHAIN: local
+  GOTELEMETRY: "off"
+cap_drop:
+  - ALL
+no_new_privileges: true

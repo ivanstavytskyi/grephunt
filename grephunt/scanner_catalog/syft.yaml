@@ -1,0 +1,40 @@
+name: syft
+module: sast
+binary: syft
+image: anchore/syft:v1.55.0
+version: "1.55.0"
+# The image is scratch: the binary is /syft and is not on PATH.
+container_binary: /syft
+timeout_sec: 1200
+network: false
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+# Syft finds no problems. It writes the project's SBOM (CycloneDX) next to the other reports.
+args:
+  - scan
+  - "dir:{src}"
+  - --output
+  - "cyclonedx-json={output}"
+  - --exclude
+  - "./.git/**"
+  - --quiet
+output_format: cyclonedx-sbom
+image_args:
+  - scan
+  - "{image_ref}"
+  - --output
+  - "cyclonedx-json={output}"
+  - --quiet
+raw_output_filename: syft.cdx.json
+output_filename: syft.sarif
+ok_exit_codes: [0]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  SYFT_CHECK_FOR_APP_UPDATE: "false"
+cap_drop:
+  - ALL
+no_new_privileges: true

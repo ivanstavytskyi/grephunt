@@ -1,0 +1,37 @@
+name: betterleaks
+module: sast
+category: secret
+binary: betterleaks
+image: ghcr.io/betterleaks/betterleaks:v1.9.0
+version: "1.9.0"
+timeout_sec: 1200
+network: false
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 256
+args:
+  - dir
+  - "{src}"
+  - --report-format
+  - sarif
+  - --report-path
+  - "{output}"
+  # The report says where a secret is, not what it is.
+  - --redact
+  - --no-banner
+  - --exit-code
+  - "0"
+  - --log-level
+  - warn
+output_filename: betterleaks.sarif
+ok_exit_codes: [0]
+# The SARIF driver version is always v8.0.0.
+trust_reported_version: false
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cap_drop:
+  - ALL
+no_new_privileges: true

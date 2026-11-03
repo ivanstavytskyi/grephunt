@@ -7,7 +7,9 @@ import time
 import uuid
 from pathlib import Path
 
-from grephunt.finding_model.record import Module, TaskRun, TaskStatus
+from grephunt.finding_model.record import Category, Module, TaskRun, TaskStatus
+from grephunt.finding_model.redaction import redact_sarif_file, secret_result_refs
+from grephunt.scan_pipeline.image_archive import IMAGE_MOUNT
 from grephunt.scan_pipeline.events import EventHandler, EventType, ScanEvent, emit, scan_event_scope
 from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scan_pipeline.pipeline import emit_tool_findings
@@ -30,6 +32,10 @@ class ScannerTool:
     @property
     def name(self) -> str:
         return self.descriptor.name
+
+    def _extra_environment(self, options: ScanOptions, use_docker: bool) -> dict[str, str]:
+        extra = getattr(self.hook, "extra_environment", None)
+        return dict(extra(options, use_docker)) if extra is not None else {}
 
     def is_applicable(self, project: Path) -> bool:
         return self.hook.is_applicable(project)
@@ -84,7 +90,12 @@ class ScannerTool:
         import asyncio
 
         emit(on_event, ScanEvent(type=EventType.TASK_QUEUED, tool=self.name, message="queued, waiting to start"))
-        if not self.is_applicable(project):
+        image_scan = options.target_kind == "image"
+        if image_scan and not getattr(self.hook, "supports_image", lambda: False)():
+            message = "does not scan container images"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "skipped"}))
+            return TaskRun(tool=self.name, status=TaskStatus.SKIPPED, error=message, image=self.descriptor.image)
+        if not image_scan and not self.is_applicable(project):
             emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message="not applicable", data={"status": "skipped"}))
             return TaskRun(tool=self.name, status=TaskStatus.SKIPPED, error="not applicable", image=self.descriptor.image)
 
@@ -123,7 +134,7 @@ class ScannerTool:
                     prepare_started,
                     on_event,
                     phase="prepare",
-                    label="warming CVE database (cached when possible)",
+                    label=getattr(self.hook, "prepare_label", "preparing scanner data (cached when possible)"),
                 )
             )
             try:
@@ -145,14 +156,17 @@ class ScannerTool:
             os.chmod(out_dir, 0o777)
         sarif_path = out_dir / self.descriptor.output_filename
         sarif_path.unlink(missing_ok=True)
+        raw_path = out_dir / self.descriptor.raw_output_filename if self.descriptor.raw_output_filename else None
+        if raw_path is not None:
+            raw_path.unlink(missing_ok=True)
         container_name = f"grephunt-{self.name}-{uuid.uuid4().hex[:8]}"
         network = self.hook.wants_network(self.descriptor, options)
 
         if options.use_docker:
-            src = self.descriptor.target_mount
+            src = IMAGE_MOUNT if image_scan else self.descriptor.target_mount
             output = f"{self.descriptor.output_mount}/{self.descriptor.output_filename}"
             binds: list[tuple[str, str, bool]] = [
-                (str(project.resolve()), self.descriptor.target_mount, True),
+                (str(project.resolve()), src, True),
                 (str(out_dir.resolve()), self.descriptor.output_mount, False),
             ]
             for host, container in self.hook.extra_mounts(options, use_docker=True):
@@ -162,7 +176,7 @@ class ScannerTool:
             binds.extend(cache_binds(self.descriptor))
             request = RunRequest(
                 image=self.descriptor.image,
-                binary=self.descriptor.binary,
+                binary=self.descriptor.container_binary or self.descriptor.binary,
                 args=self.hook.build_args(self.descriptor, src, output, options, True),
                 container_name=container_name,
                 network=network,
@@ -171,7 +185,7 @@ class ScannerTool:
                 memory=self.descriptor.memory,
                 pids_limit=self.descriptor.pids_limit,
                 binds=binds,
-                environment=self.descriptor.environment,
+                environment={**self.descriptor.environment, **self._extra_environment(options, True)},
                 timeout_sec=self.descriptor.timeout_sec,
                 cap_drop=self.descriptor.cap_drop,
                 no_new_privileges=self.descriptor.no_new_privileges,
@@ -203,6 +217,7 @@ class ScannerTool:
                 args=self.hook.build_args(self.descriptor, str(project), str(sarif_path), options, False),
                 timeout_sec=self.descriptor.timeout_sec,
                 network=network,
+                environment=self._extra_environment(options, False),
             )
             started = time.monotonic()
             heartbeat = asyncio.create_task(
@@ -223,6 +238,40 @@ class ScannerTool:
                 tool=self.name, status=TaskStatus.TIMEOUT, duration_sec=duration,
                 tool_version=version, image=self.descriptor.image, error=outcome.error,
             )
+        if outcome.returncode in self.descriptor.skip_exit_codes and not sarif_path.exists() and not (raw_path and raw_path.exists()):
+            message = "nothing to scan for this tool in the project"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "skipped"}))
+            return TaskRun(tool=self.name, status=TaskStatus.SKIPPED, duration_sec=duration, tool_version=version,
+                           image=self.descriptor.image, error=message)
+
+        allowed = self.descriptor.ok_exit_codes
+        if allowed is not None and outcome.returncode not in allowed:
+            raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""
+            ascii_lines = [line.strip() for line in raw_tail.splitlines() if line.strip() and line.strip().isascii()]
+            tail = "\n".join(ascii_lines)[-2000:] or f"exit code {outcome.returncode}"
+            message = f"exit code {outcome.returncode}: {tail.splitlines()[-1][:400]}"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
+            return TaskRun(
+                tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
+                tool_version=version, image=self.descriptor.image, error=tail,
+            )
+
+        if self.descriptor.output_source == "stdout" and outcome.stdout.strip():
+            # Tools that print the report exit non-zero when they find something. The report still counts.
+            (raw_path or sarif_path).write_text(outcome.stdout, encoding="utf-8")
+
+        convert = getattr(self.hook, "convert_output", None)
+        if convert is not None and raw_path is not None and raw_path.exists():
+            try:
+                convert(raw_path, sarif_path, self.descriptor)
+            except (OSError, ValueError) as exc:
+                message = f"could not convert {raw_path.name} to SARIF: {exc}"
+                emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
+                return TaskRun(
+                    tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
+                    tool_version=version, image=self.descriptor.image, error=message,
+                )
+
         if not sarif_path.exists():
             raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""
             ascii_lines = [line.strip() for line in raw_tail.splitlines() if line.strip() and line.strip().isascii()]
@@ -241,7 +290,12 @@ class ScannerTool:
             module=Module(self.descriptor.module),
             fallback_version=version,
             refine=self.hook.refine_finding,
+            trust_reported_version=self.descriptor.trust_reported_version,
         )
+        redact_sarif_file(sarif_path, secret_result_refs(findings))
+        if raw_path is not None and self.descriptor.category is Category.SECRET:
+            # The tool's own report holds the values. The converted, masked SARIF replaces it.
+            raw_path.unlink(missing_ok=True)
         parsed_version = next((item.tool_version for item in findings if item.tool_version), version)
         finished = TaskRun(
             tool=self.name,

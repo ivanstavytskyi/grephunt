@@ -27,8 +27,12 @@ def _package_info(message: str) -> dict[str, str]:
 
 class TrivyHook:
     name = "trivy"
+    prepare_label = "warming CVE database (cached when possible)"
 
     def is_applicable(self, project: Path) -> bool:
+        return True
+
+    def supports_image(self) -> bool:
         return True
 
     def wants_network(self, descriptor: ToolDescriptor, options: ScanOptions) -> bool:
@@ -39,6 +43,13 @@ class TrivyHook:
 
     def build_args(self, descriptor: ToolDescriptor, src: str, output: str, options: ScanOptions, use_docker: bool) -> list[str]:
         scanners = options.trivy_scanners or ["vuln", "secret", "misconfig"]
+        if options.target_kind == "image":
+            # misconfig checks Dockerfiles and IaC, which an image does not contain.
+            scanners = [item for item in scanners if item != "misconfig"] or ["vuln"]
+            args = ["image", "--input", src, "--scanners", ",".join(scanners)]
+            if use_docker:
+                args.append("--skip-db-update")
+            return [*args, "--format", "sarif", "--output", output, "--quiet"]
         args = ["fs", "--scanners", ",".join(scanners)]
         if use_docker:
             args.append("--skip-db-update")

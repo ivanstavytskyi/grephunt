@@ -47,7 +47,8 @@ def resolve_project(cli_value: str | None) -> Path:
 
 def parse_scanners(values: list[str] | None, known: dict) -> list[str]:
     if not values:
-        return list(known)
+        # Cloud scanners (Snyk) upload project data. They run only when named with -s.
+        return [name for name, tool in known.items() if tool.descriptor.default_enabled]
     names = [item.strip().lower() for value in values for item in value.split(",") if item.strip()]
     unknown = [name for name in names if name not in known]
     if unknown:
@@ -68,6 +69,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="cmd")
     scan = sub.add_parser("scan", help="scan a directory")
     scan.add_argument("project", nargs="?", help="path to the project")
+    scan.add_argument("--image", type=Path, metavar="TAR", help="container image tar (docker save or OCI layout) instead of a folder")
     scan.add_argument("-o", "--out", type=Path, default=Path("reports"))
     scan.add_argument("--local", action="store_true", help="scanners installed on this machine")
     scan.add_argument("-s", "--scanner", action="append", metavar="NAME")
@@ -109,6 +111,11 @@ def main() -> None:
         uvicorn.run("grephunt.web_console.app:app", host="127.0.0.1", port=PORT, reload=False)
         return
 
+    if args.image is not None:
+        if args.project:
+            sys.exit("Give a project folder or --image, not both.")
+        return _scan_image(args, tools)
+
     names = parse_scanners(args.scanner, tools)
     project = resolve_project(args.project)
     out_dir = args.out / project.name
@@ -137,6 +144,40 @@ def main() -> None:
     print(render_summary(result))
     json_path = write_findings_json(result, out_dir)
     print(f"JSON:  {json_path}")
+
+
+def _scan_image(args, tools) -> None:
+    from grephunt.scan_pipeline.image_archive import detect_image_format
+
+    image = args.image.expanduser().resolve()
+    try:
+        image_format = detect_image_format(image)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    capable = [
+        name
+        for name, tool in tools.items()
+        if getattr(tool.hook, "supports_image", lambda: False)() and tool.descriptor.default_enabled
+    ]
+    names = parse_scanners(args.scanner, tools) if args.scanner else capable
+    out_dir = args.out / image.stem
+    mode = "locally" if args.local else "Docker"
+    print(f"Image:     {image} ({image_format})\nReports:   {out_dir.resolve()}\nMode:      {mode}\nScanners:  {', '.join(names)}\n")
+    options = ScanOptions(
+        configs=args.config or ["p/default"],
+        excludes=list(args.exclude or []),
+        use_docker=not args.local,
+        target_kind="image",
+        image_format=image_format,
+    )
+    selected = [tools[name] for name in names]
+    try:
+        result = asyncio.run(run_scan(image, out_dir, selected, options, on_event=_print_event))
+    except KeyboardInterrupt:
+        sys.exit("\nScan interrupted (Ctrl+C). Containers stopped.")
+    print()
+    print(render_summary(result))
+    print(f"JSON:  {write_findings_json(result, out_dir)}")
 
 
 if __name__ == "__main__":
