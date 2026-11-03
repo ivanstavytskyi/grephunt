@@ -28,6 +28,7 @@ from grephunt.web_console.ai_explain import (
     check_key,
     explain_finding,
     explain_scan_report,
+    poc_finding,
 )
 from grephunt.web_console.github_source import download_github_zip
 from grephunt.web_console.uploads import safe_extract
@@ -638,6 +639,25 @@ def ai_explain(body: dict = Body()) -> dict:
         raise HTTPException(status_code=400, detail="finding is missing")
     try:
         text = explain_finding(
+            str(body.get("provider") or ""),
+            str(body.get("api_key") or ""),
+            str(body.get("model") or ""),
+            finding,
+        )
+    except (ValueError, ProviderError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"text": text}
+
+
+@app.post("/api/ai/poc")
+def ai_poc(body: dict = Body()) -> dict:
+    finding = body.get("finding")
+    if not isinstance(finding, dict):
+        raise HTTPException(status_code=400, detail="finding is missing")
+    if str(finding.get("category") or "") in {"secret", "dependency"}:
+        raise HTTPException(status_code=400, detail="a proof of concept is for a code or misconfiguration finding, not a secret or dependency")
+    try:
+        text = poc_finding(
             str(body.get("provider") or ""),
             str(body.get("api_key") or ""),
             str(body.get("model") or ""),

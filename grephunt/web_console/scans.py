@@ -395,7 +395,9 @@ def get_findings(scan_id: str) -> list[dict] | None:
         # Live findings are stored as each tool reports them; correlation runs when the scan ends.
         # Correlate on read so a running scan already shows one finding per problem.
         findings_out = _correlate_live(findings_out, database_anchors(project_map) if project_map else {})
-    return attach_context(findings_out, project_map)
+    from grephunt.finding_model.exploitability import attach_exploitability
+
+    return attach_exploitability(attach_context(findings_out, project_map))
 
 
 def _correlate_live(bodies: list[dict], anchors: dict[str, set[int]]) -> list[dict]:

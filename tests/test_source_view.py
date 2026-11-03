@@ -118,3 +118,28 @@ def test_running_scan_shows_correlated_findings(tmp_path: Path, monkeypatch):
         session.get(ScanRow, "live").status = "success"
         session.commit()
     assert len(client.get("/api/scans/live/findings").json()) == 3  # a finished scan shows what the pipeline stored
+
+
+def test_findings_carry_an_exploitability_score(tmp_path: Path, monkeypatch):
+    import json
+
+    from grephunt.database.tables import FindingRow
+
+    client = _setup(tmp_path, monkeypatch, ROOT / "samples" / "vuln_flask")
+    with scan_service.session_factory()() as session:
+        body = {"severity": "high", "category": "code", "rule_id": "sqli", "title": "SQL injection",
+                "cwe": ["CWE-89"], "location": {"path": "/src/app.py", "start_line": 17}, "fingerprint": "x", "correlation_key": "x"}
+        session.add(FindingRow(scan_id="s1", fingerprint="x", correlation_key="x", severity="high", category="code", tool="semgrep", body=json.dumps(body)))
+        session.commit()
+    finding = client.get("/api/scans/s1/findings").json()[0]
+    assert "exploitability" in finding
+    assert 1 <= finding["exploitability"]["score"] <= 99
+    # app.py line 17 is reached by GET /user and the query is built from variables, so confidence is high.
+    assert finding["exploitability"]["score"] >= 70
+
+
+def test_poc_endpoint_rejects_secret_and_dependency(tmp_path: Path, monkeypatch):
+    client = _setup(tmp_path, monkeypatch, ROOT / "samples" / "vuln_flask")
+    payload = {"provider": "gemini", "api_key": "k", "model": "gemini-2.5-flash", "finding": {"category": "dependency", "title": "lodash"}}
+    assert client.post("/api/ai/poc", json=payload).status_code == 400
+    assert client.post("/api/ai/poc", json={**payload, "finding": {}}).status_code == 400
