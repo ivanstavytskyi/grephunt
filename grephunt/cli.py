@@ -77,6 +77,9 @@ def main() -> None:
     scan.add_argument("-e", "--exclude", action="append", metavar="PATTERN")
     scan.add_argument("--no-default-excludes", action="store_true")
     sub.add_parser("serve", help="web console on port 4000")
+    project_map = sub.add_parser("map", help="build the project map (files, imports, architecture) without scanning")
+    project_map.add_argument("project", help="path to the project")
+    project_map.add_argument("-o", "--out", type=Path, default=Path("reports"))
     doctor = sub.add_parser("doctor", help="check Docker and remove stale scanner containers")
     doctor.add_argument(
         "--restart-docker",
@@ -84,6 +87,23 @@ def main() -> None:
         help="restart Docker Desktop on Windows, then purge stale containers",
     )
     args = parser.parse_args(sys.argv[1:] if len(sys.argv) > 1 else ["scan"])
+
+    if args.cmd == "map":
+        from grephunt.project_map import build_project_map, write_project_map
+
+        project = _clean_path(args.project)
+        if not project.is_dir():
+            sys.exit(f"Directory not found: {project}")
+        built = build_project_map(project)
+        written = write_project_map(built, args.out / project.name)
+        stats = built.stats
+        print(f"Files: {stats['files']} ({stats['parsed_files']} parsed), imports: {stats['import_edges']}, "
+              f"external packages: {stats['external_packages']}")
+        print(f"Stack: {', '.join(built.stack['frameworks']) or 'no known framework'}; "
+              f"data: {', '.join(built.stack['datastores']) or 'none found'}")
+        print(f"Architecture: {len(built.architecture.nodes)} nodes, {len(built.architecture.edges)} edges")
+        print(f"Map:   {written}")
+        return
 
     if args.cmd == "doctor":
         from grephunt.doctor import run_doctor

@@ -21,6 +21,7 @@ class EventType(str, Enum):
     TASK_FINISHED = "task.finished"
     FINDING_ACCEPTED = "finding.accepted"
     SCAN_FINISHED = "scan.finished"
+    MAP_READY = "map.ready"
 
 
 class ScanEvent(BaseModel):

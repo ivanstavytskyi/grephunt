@@ -36,9 +36,11 @@ from grephunt.web_console.scans import (
     dismiss_findings,
     get_events,
     get_findings,
+    get_project_map,
     get_scan,
     list_scans,
     list_tools,
+    rebuild_project_map,
     session_factory,
 )
 from grephunt.config import DATA_DIR, WEB_DIST, max_image_upload_bytes, max_upload_bytes, upload_limit_label
@@ -234,6 +236,25 @@ def scan(scan_id: str) -> dict:
 @app.get("/api/scans/{scan_id}/findings")
 def findings(scan_id: str) -> list[dict]:
     found = get_findings(scan_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return found
+
+
+@app.get("/api/scans/{scan_id}/map")
+def project_map(scan_id: str) -> dict:
+    found = get_project_map(scan_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return found
+
+
+@app.post("/api/scans/{scan_id}/map")
+async def project_map_rebuild(scan_id: str) -> dict:
+    try:
+        found = await asyncio.to_thread(rebuild_project_map, scan_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if found is None:
         raise HTTPException(status_code=404, detail="scan not found")
     return found
