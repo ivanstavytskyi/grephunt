@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<psalm
+    errorLevel="4"
+    resolveFromConfigFile="false"
+    findUnusedCode="false"
+    findUnusedBaselineEntry="false"
+    ensureOverrideAttribute="false"
+>
+    <projectFiles>
+        <directory name="/src"/>
+        <ignoreFiles>
+            <directory name="/src/vendor"/>
+            <directory name="/src/node_modules"/>
+        </ignoreFiles>
+    </projectFiles>
+</psalm>

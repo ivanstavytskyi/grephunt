@@ -15,10 +15,14 @@ from grephunt.web_console.ai_explain import ProviderError, _call
 
 # Language (as the map reports it) -> code scanners that specialise in it.
 _LANG_SCANNERS = {
-    "python": ["bandit"],
+    "python": ["bandit", "codeql"],
     "go": ["gosec"],
     "php": ["psalm", "progpilot"],
     "ruby": ["brakeman"],
+    "java": ["codeql"],
+    "javascript": ["codeql"],
+    "typescript": ["codeql"],
+    "csharp": ["codeql"],
     "c": ["cppcheck"],
     "cpp": ["cppcheck"],
 }

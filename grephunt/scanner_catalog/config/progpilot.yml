@@ -1,0 +1,14 @@
+inputs:
+  exclusions:
+    - vendor
+    - node_modules
+    - bower_components
+    - .git
+outputs:
+  tainted_flow: true
+  sarif_output: true
+options:
+  analyze_includes: true
+  pretty_print: false
+  max_file_analysis_duration: 30
+  max_file_size: 1000000
