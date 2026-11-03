@@ -25,6 +25,8 @@
   },
   "snippet": "return str(eval(request.args.get(\"expr\")))",
   "evidence": "SARIF region",
+  "confirmations": [],
+  "lines": [],
   "status": "open",
   "raw_ref": "semgrep.sarif#/runs/0/results/0",
   "help_uri": null,

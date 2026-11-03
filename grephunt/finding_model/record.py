@@ -72,6 +72,16 @@ class Location(BaseModel):
         return self.host or ""
 
 
+class Confirmation(BaseModel):
+    """One tool's report of a problem that correlation folded into a finding."""
+
+    tool: str
+    rule_id: str
+    title: str = ""
+    line: int | None = None
+    severity: str | None = None
+
+
 class Finding(BaseModel):
     """A normalized finding. Raw scanner output is not stored here."""
 
@@ -94,6 +104,10 @@ class Finding(BaseModel):
     location: Location
     snippet: str | None = None
     evidence: str | None = None
+    confirmations: list[Confirmation] = Field(default_factory=list)
+    """Every tool report folded into this finding. Two or more means independent confirmation."""
+    lines: list[int] = Field(default_factory=list)
+    """Every line in the file where this problem occurs, when it repeats (13, 21, 29). Empty for one place."""
     status: FindingStatus = FindingStatus.OPEN
     raw_ref: str | None = None
     help_uri: str | None = None

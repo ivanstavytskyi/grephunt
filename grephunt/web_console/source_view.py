@@ -28,7 +28,7 @@ class SourceUnavailable(Exception):
 
 def relative_path(target: Path, raw: str) -> str:
     """Finding paths can be relative, absolute inside the container (/src/...), or absolute on this machine."""
-    from grephunt.project_map.finding_context import clean_path
+    from grephunt.finding_model.vuln_class import clean_path
 
     value = raw.replace("\\", "/").strip()
     root = target.resolve().as_posix().rstrip("/") + "/"

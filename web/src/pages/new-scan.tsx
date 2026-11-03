@@ -63,6 +63,15 @@ export function NewScanPage() {
     defaultValues: { github: "" },
   });
 
+  // Start from the scanners the catalog marks as default (one or two strong tools per category).
+  const defaultsApplied = useRef(false);
+  useEffect(() => {
+    if (!tools.data?.length || defaultsApplied.current) return;
+    defaultsApplied.current = true;
+    const defaults = tools.data.filter((tool) => tool.default_enabled && !tool.cloud).map((tool) => tool.name);
+    if (defaults.length) setSelected(defaults);
+  }, [tools.data]);
+
   useEffect(() => {
     if (!tools.data?.length) return;
     setToolParams((current) => {
