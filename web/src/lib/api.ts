@@ -157,3 +157,22 @@ export function watchScan(
     if (current.readyState === WebSocket.OPEN) current.close(1000);
   };
 }
+
+export type SnykStatus = {
+  connected: boolean;
+  login: "idle" | "preparing" | "waiting" | "connected" | "failed";
+  url: string | null;
+  error: string | null;
+  cli_version: string;
+};
+
+async function snykCall(path: string, method: "GET" | "POST" = "POST"): Promise<SnykStatus> {
+  const response = await fetch(`/api/integrations/snyk${path}`, { method });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export const fetchSnykStatus = () => snykCall("", "GET");
+export const startSnykLogin = () => snykCall("/login");
+export const cancelSnykLogin = () => snykCall("/cancel");
+export const disconnectSnyk = () => snykCall("/logout");

@@ -1,0 +1,33 @@
+name: snyk-code
+module: sast
+binary: snyk
+# The Snyk CLI is not taken from an image: integrations/snyk.py downloads the pinned,
+# hash-checked binary, and the hook mounts it at /opt/snyk/snyk.
+image: python:3.12.12-slim
+version: "1.1308.3"
+container_binary: /opt/snyk/snyk
+# Snyk Code analyses the source in Snyk's cloud: the project's files are uploaded.
+cloud: true
+default_enabled: false
+network: true
+timeout_sec: 1800
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+args:
+  - code
+  - test
+  - "{src}"
+  - "--sarif-file-output={output}"
+output_filename: snyk-code.sarif
+# 0: no issues, 1: issues found. 2 is an error. 3: no supported files.
+ok_exit_codes: [0, 1]
+skip_exit_codes: [3]
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+cap_drop:
+  - ALL
+no_new_privileges: true

@@ -1,0 +1,10 @@
+# Snyk CLI release used for login (on this machine) and for scans (in a container).
+# Hashes are from the release's signed sha256sums.txt.asc. Update all of them together.
+version: "1.1308.3"
+url: "https://github.com/snyk/cli/releases/download/v{version}/{file}"
+assets:
+  windows-amd64: {file: snyk-win.exe, sha256: fe7cf13fa55e72f1c3d131bb9a785be9b090d51c00ca36d7472479640b9cd33e}
+  linux-amd64: {file: snyk-linux, sha256: 5f323f45885341ea1473639859271925912ece82a2f77bc146bb4468f9838840}
+  linux-arm64: {file: snyk-linux-arm64, sha256: 3686e7c29344dda49f9c86be6d48e9bc43f83b74b8c6f331dcc5d6d43f4a6faf}
+  darwin-amd64: {file: snyk-macos, sha256: d5d8016f064db0e4b686ece9ffa041036d005bcbad2af27531ec5e391e9c64a5}
+  darwin-arm64: {file: snyk-macos-arm64, sha256: b353a8b2d08fff5b385a55de123342c3d9a737e6d81c84e4cc0a62d6e2c1c3db}

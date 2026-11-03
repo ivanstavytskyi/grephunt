@@ -163,7 +163,11 @@ def parse_sarif(
             location = (result.get("locations") or [{}])[0].get("physicalLocation", {})
             region = location.get("region", {})
             message = result.get("message", {}).get("text", "")
-            cwe = sorted({match for tag in tags for match in _CWE_RE.findall(str(tag))} | _relationship_cwes(rule))
+            listed = rule.get("properties", {}).get("cwe") or []  # Snyk Code: properties.cwe
+            cwe = sorted(
+                {match for tag in [*tags, *(listed if isinstance(listed, list) else [])] for match in _CWE_RE.findall(str(tag))}
+                | _relationship_cwes(rule)
+            )
             cve = sorted(
                 {
                     match.upper() if match.upper().startswith("CVE") else match

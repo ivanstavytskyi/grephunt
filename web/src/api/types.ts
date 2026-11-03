@@ -71,6 +71,8 @@ export type ToolInfo = {
   network: boolean;
   prepare_network: boolean;
   scans_images: boolean;
+  default_enabled: boolean;
+  cloud: boolean;
 };
 
 export type ScanEvent = {
