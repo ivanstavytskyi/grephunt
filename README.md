@@ -58,6 +58,39 @@ The dev UI on http://127.0.0.1:5173 proxies `/api` to port 4000.
 
 Give a folder on this machine, upload a zip, or upload a container image as a `.tar`. Project code and image archives are mounted read-only and are never executed.
 
+## Project map
+
+Before the scanners run, GrepHunt reads the source with tree-sitter (nothing is executed) and builds a map with two views:
+
+- **Architecture**: services from docker-compose, frontend files, routes, backend handlers, ORM, and databases, left to right. Routes come from Express, Flask/FastAPI, Django, Spring, Go (net/http, gin, echo), Laravel/Slim, and PHP pages. Frontend calls (Angular HttpClient, fetch, axios, jQuery, HTML forms) are matched to routes. A database call whose query is built from variables is marked dynamic.
+- **Files**: folders and imports between them (Python, JS/TS, PHP, Go, Java).
+
+Every link carries the file and line it came from. No AI is used to build the map.
+
+In the console, **Project map** on a scan page opens the map: large projects start as an overview grouped by route prefix and folder; **Show its path through the system** keeps one request's path (for example `product.service.ts → GET /rest/products/search → search.ts → Sequelize → SQLite`). Drag, rename, add notes, blocks, and links; edits are saved to `map_overlay.json` and survive a rebuild. **Obsidian** and **Mermaid** download the current view with your edits.
+
+Findings use the map: each one shows the route that reaches it with its request parameters, SQL findings are placed on the database call, and the code view marks where input enters and where it is used.
+
+```bash
+python -m grephunt map ./project -o reports    # project_map.json, .canvas, .mmd
+```
+
+API: `GET/POST /api/scans/{id}/map`, `GET/PUT /api/scans/{id}/map/overlay`, `GET /api/scans/{id}/map/export?format=canvas|mermaid&view=architecture|files`, `GET /api/scans/{id}/source?path=…&line=…`.
+
+## Correlation
+
+Several tools reporting one problem become one finding:
+
+- paths are normalized across tools (`/src/x`, `./x`, `../../src/x`, `src/x`);
+- CWEs map to a vulnerability class (CWE-89 and 564 are SQL injection, 77/78/88 command injection, …); without a CWE the class comes from the rule and title; infrastructure checks map to a topic (root user, open egress, encryption, …);
+- findings of one class in one file on nearby lines are one finding, with every tool's report kept in `confirmations`;
+- findings without a class are clustered by text (TF-IDF and cosine similarity, limited to close lines);
+- one check at several places in a file is one finding with `lines` (13, 21, 29).
+
+A running scan is correlated when its findings are read, so duplicates do not show while tools finish.
+
+By default one or two strong scanners per category run (Semgrep with Bandit/gosec for their languages, Gitleaks and TruffleHog, Trivy and OSV-Scanner, Checkov and zizmor). The others run when selected.
+
 ## Container images
 
 A container image can be scanned from a tar file: `docker save -o app.tar myapp:1.0`, or an OCI image layout packed as tar. Upload the `.tar` in the console instead of a zip, or run:
