@@ -9,6 +9,7 @@ import { findingKey, FindingsTable } from "@/components/findings-table";
 import { SelectMenu } from "@/components/select-menu";
 import { PanelBoundary } from "@/components/panel-boundary";
 import { ScanMap } from "@/components/scan-map";
+import { Check, Pencil, Trash2 } from "lucide-react";
 import { Snippet } from "@/components/snippet";
 import { FindingCode } from "@/components/code-view";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +58,11 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
   const [tool, setTool] = useState("all");
   const [selected, setSelected] = useState<Finding | null>(null);
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
+  const [editing, setEditing] = useState(false);
+  const finishEditing = () => {
+    setEditing(false);
+    setChecked(new Set());
+  };
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState("");
 
@@ -338,14 +344,41 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={removing || checked.size === 0}
-                onClick={() => void removeChecked()}
-                className="inline-flex h-9 items-center justify-center rounded-md border border-rose-500/40 bg-ink-panel px-3.5 text-sm font-medium text-rose-100 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {removing ? "Removing…" : checked.size > 0 ? `Remove ${checked.size}` : "Remove"}
-              </button>
+              {editing ? (
+                <>
+                  <span className="text-xs text-ink-muted">
+                    {checked.size > 0 ? `${checked.size} selected` : "Click rows to select"}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={removing || checked.size === 0}
+                    onClick={() => void removeChecked()}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-rose-500/40 bg-ink-panel px-3.5 text-sm font-medium text-rose-100 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Trash2 className="size-4" />
+                    {removing ? "Removing…" : checked.size > 0 ? `Remove ${checked.size}` : "Remove"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={finishEditing}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-signal/50 bg-ink-panel px-3.5 text-sm font-medium text-ink-text hover:bg-signal/10"
+                  >
+                    <Check className="size-4" />
+                    Done
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={rows.length === 0}
+                  onClick={() => setEditing(true)}
+                  title="Select findings to remove from this report"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-ink-line bg-ink-panel px-3.5 text-sm font-medium text-ink-text hover:bg-ink-raised disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Pencil className="size-4" />
+                  Edit
+                </button>
+              )}
               <ScanExportButton scan={scan.data} findings={rows} filter={findingsFilter} />
             </div>
           </div>
@@ -363,6 +396,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               selected={selected}
               onSelect={setSelected}
               checked={checked}
+              editing={editing}
               onToggle={toggleChecked}
               onToggleVisible={toggleVisible}
             />

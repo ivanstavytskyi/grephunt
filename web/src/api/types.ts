@@ -129,3 +129,52 @@ export type FindingContext = {
   routes?: { id: string; label: string; params: string[]; framework?: string | null }[];
   database?: { target: string; dynamic: boolean; line: number };
 };
+
+export type MapEvidence = { path: string; line: number; text: string };
+
+export type MapNode = {
+  id: string;
+  kind: "dir" | "file" | "package" | "component" | "route" | "datastore" | "external";
+  label: string;
+  path?: string | null;
+  parent?: string | null;
+  language?: string | null;
+  role?: string | null;
+  layer?: "frontend" | "backend" | "data" | "external" | "other" | null;
+  entry_point?: boolean;
+  lines?: number | null;
+  meta: Record<string, unknown>;
+};
+
+export type MapEdge = {
+  id: string;
+  source: string;
+  target: string;
+  kind: "import" | "http" | "handles" | "db" | "service";
+  label: string;
+  evidence: MapEvidence[];
+  count: number;
+};
+
+export type MapView = { nodes: MapNode[]; edges: MapEdge[] };
+
+export type ProjectMap = {
+  version: number;
+  root_label: string;
+  stats: Record<string, unknown>;
+  stack: { languages?: Record<string, number>; frameworks?: string[]; datastores?: string[] };
+  files: MapView;
+  architecture: MapView;
+  unresolved: MapEvidence[];
+  truncated: boolean;
+};
+
+export type MapOverlayView = {
+  positions?: Record<string, { x: number; y: number }>;
+  labels?: Record<string, string>;
+  notes?: Record<string, string>;
+  blocks?: { id: string; label: string; x: number; y: number }[];
+  links?: { id: string; source: string; target: string; label: string }[];
+};
+
+export type MapOverlay = { version: number; views: Record<string, MapOverlayView> };

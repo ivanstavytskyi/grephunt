@@ -231,6 +231,37 @@ def get_source(scan_id: str, path: str, line: int | None, end_line: int | None, 
     return read_source(target, path, line, end_line, context, get_findings(scan_id) or [], load_map(_scan_dir(scan_id)))
 
 
+MAX_OVERLAY_BYTES = 2_000_000
+
+
+def get_map_overlay(scan_id: str) -> dict | None:
+    """Edits a person made on the map (positions, labels, notes, own blocks and links). None for an unknown scan."""
+    if get_scan(scan_id) is None:
+        return None
+    path = _scan_dir(scan_id) / "map_overlay.json"
+    if not path.is_file():
+        return {"version": 1, "views": {}}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"version": 1, "views": {}}
+
+
+def save_map_overlay(scan_id: str, overlay: dict) -> dict | None:
+    """Store the edits apart from project_map.json, so rebuilding the map keeps them."""
+    if get_scan(scan_id) is None:
+        return None
+    text = json.dumps(overlay, ensure_ascii=False)
+    if len(text.encode("utf-8")) > MAX_OVERLAY_BYTES:
+        raise ValueError("the map edits are too large to save")
+    directory = _scan_dir(scan_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = directory / "map_overlay.json.tmp"
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(directory / "map_overlay.json")
+    return overlay
+
+
 def rebuild_project_map(scan_id: str) -> dict | None:
     """Build the map again from the scan's target, for scans made before the map existed."""
     from grephunt.project_map import build_project_map, write_project_map

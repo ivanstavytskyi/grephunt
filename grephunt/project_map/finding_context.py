@@ -62,11 +62,23 @@ class MapIndex:
         return out or None
 
 
-def _relative(path: str) -> str:
-    value = path.replace("\\", "/")
+def clean_path(path: str) -> str:
+    """A scanner's path as a project-relative path.
+
+    Scanners report /src/app.py (container mount), ./app.py, or, when they ran from a
+    folder below the mount (KICS), ../../src/app.py.
+    """
+    value = path.replace("\\", "/").strip()
     for prefix in ("file://", "/src/", "./"):
         value = value.removeprefix(prefix)
-    return str(PurePosixPath(value.lstrip("/")))
+    if value.startswith("../"):
+        while value.startswith("../"):
+            value = value[3:]
+        value = value.removeprefix("src/")
+    return str(PurePosixPath(value.lstrip("/"))) if value else ""
+
+
+_relative = clean_path
 
 
 def attach_context(findings: list[dict], project_map: dict) -> list[dict]:

@@ -54,6 +54,7 @@ def test_relative_path_forms(tmp_path: Path):
     assert relative_path(tmp_path, "./a/b.py") == "a/b.py"
     assert relative_path(tmp_path, f"{tmp_path.resolve().as_posix()}/a/b.py") == "a/b.py"
     assert relative_path(tmp_path, "a\\b.py") == "a/b.py"
+    assert relative_path(tmp_path, "../../src/docker/backend/Dockerfile") == "docker/backend/Dockerfile"  # KICS
 
 
 def test_findings_carry_route_and_database_context(tmp_path: Path, monkeypatch):
@@ -74,3 +75,20 @@ def test_findings_carry_route_and_database_context(tmp_path: Path, monkeypatch):
     assert by_rule["cmdi"]["context"]["routes"][0]["label"] == "GET /ping"
     assert "database" not in by_rule["cmdi"]["context"]
     assert "context" not in by_rule["header"] or "routes" not in by_rule["header"]["context"]
+
+
+def test_map_overlay_is_saved_apart_from_the_map(tmp_path: Path, monkeypatch):
+    client = _setup(tmp_path, monkeypatch, ROOT / "samples" / "vuln_flask")
+    assert client.get("/api/scans/s1/map/overlay").json() == {"version": 1, "views": {}}
+    overlay = {"version": 1, "views": {"architecture": {
+        "positions": {"f:app.py": {"x": 10, "y": 20}},
+        "labels": {"f:app.py": "Main app"},
+        "notes": {"r:GET /user": "SQL injection here"},
+        "blocks": [{"id": "n:1", "label": "WAF", "x": 0, "y": 0}],
+        "links": [{"id": "l:1", "source": "n:1", "target": "r:GET /user", "label": "filters"}],
+    }}}
+    assert client.put("/api/scans/s1/map/overlay", json=overlay).status_code == 200
+    assert client.get("/api/scans/s1/map/overlay").json()["views"]["architecture"]["labels"]["f:app.py"] == "Main app"
+    assert client.post("/api/scans/s1/map").status_code == 200  # a rebuild keeps the edits
+    assert client.get("/api/scans/s1/map/overlay").json()["views"]["architecture"]["notes"]["r:GET /user"] == "SQL injection here"
+    assert client.put("/api/scans/nope/map/overlay", json=overlay).status_code == 404

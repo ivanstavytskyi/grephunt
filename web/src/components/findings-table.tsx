@@ -6,8 +6,8 @@ import { filterFindings, type FindingsFilterState } from "@/lib/findings-filter"
 import { locationLabel } from "@/lib/utils";
 
 const ROW_HEIGHT = 52;
-const COLUMNS =
-  "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_7rem]";
+const COLUMNS_EDIT = "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_7rem]";
+const COLUMNS_VIEW = "grid-cols-[5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_7rem]";
 
 function rowTitle(finding: Finding): string {
   if (finding.package) return `${finding.package}@${finding.installed_version ?? ""}`;
@@ -34,6 +34,7 @@ export const FindingsTable = memo(function FindingsTable({
   checked,
   onToggle,
   onToggleVisible,
+  editing = false,
 }: {
   findings: Finding[];
   severity: Severity | "all";
@@ -45,7 +46,10 @@ export const FindingsTable = memo(function FindingsTable({
   checked: Set<string>;
   onToggle: (finding: Finding, value: boolean) => void;
   onToggleVisible: (findings: Finding[], value: boolean) => void;
+  /** Selection mode: checkboxes are shown only while the person edits the report. */
+  editing?: boolean;
 }) {
+  const COLUMNS = editing ? COLUMNS_EDIT : COLUMNS_VIEW;
   const parentRef = useRef<HTMLDivElement>(null);
 
   const filter: FindingsFilterState = useMemo(
@@ -80,6 +84,7 @@ export const FindingsTable = memo(function FindingsTable({
   return (
     <div ref={parentRef} className="max-h-[640px] overflow-auto rounded-lg border border-ink-line">
       <div className={`sticky top-0 z-10 grid ${COLUMNS} border-b border-ink-line bg-ink-panel text-[11px] uppercase tracking-wide text-ink-muted`}>
+        {editing && (
         <div className="flex items-center justify-center">
           <input
             ref={selectAllRef}
@@ -90,6 +95,7 @@ export const FindingsTable = memo(function FindingsTable({
             className="size-3.5 accent-signal"
           />
         </div>
+        )}
         <div className="px-3 py-2 font-medium">Severity</div>
         <div className="px-3 py-2 font-medium">Category</div>
         <div className="px-3 py-2 font-medium">Location</div>
@@ -109,8 +115,9 @@ export const FindingsTable = memo(function FindingsTable({
               key={findingKey(finding)}
               className={`absolute left-0 top-0 grid w-full cursor-pointer ${COLUMNS} border-b border-ink-line/70 hover:bg-ink-raised ${active ? "bg-ink-raised" : ""} ${checked.has(findingKey(finding)) ? "bg-ink-raised/70" : ""}`}
               style={{ height: ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
-              onClick={() => onSelect(finding)}
+              onClick={() => (editing ? onToggle(finding, !checked.has(findingKey(finding))) : onSelect(finding))}
             >
+              {editing && (
               <div
                 className="flex items-center justify-center"
                 onClick={(event) => event.stopPropagation()}
@@ -124,6 +131,7 @@ export const FindingsTable = memo(function FindingsTable({
                   className="size-3.5 accent-signal"
                 />
               </div>
+              )}
               <div className="px-3 py-2.5 align-top">
                 <Badge tone={finding.severity}>{finding.severity}</Badge>
               </div>
