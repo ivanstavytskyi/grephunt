@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 
 from grephunt.execution.cache import cache_dir
 from grephunt.execution.request import RunRequest
-from grephunt.finding_model.record import Finding
+from grephunt.finding_model.record import Finding, Severity
 from grephunt.scan_pipeline.converters import convert
 from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scanner_catalog.descriptor import ToolDescriptor
@@ -187,6 +187,15 @@ class GenericHook:
         sarif_path.write_text(json.dumps(sarif, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def refine_finding(self, finding: Finding, result: dict, rule: dict) -> Finding:
+        prop = self.descriptor.severity_property
+        if prop:
+            value = (result.get("properties") or {}).get(prop) or (rule.get("properties") or {}).get(prop)
+            if isinstance(value, str) and value:
+                mapping = {key.lower(): target for key, target in self.descriptor.severity_map.items()}
+                update: dict = {"severity_original": value}
+                if value.lower() in mapping:
+                    update["severity"] = Severity(mapping[value.lower()])
+                return finding.model_copy(update=update)
         original = (result.get("properties") or {}).get("tool-severity")
         if isinstance(original, str) and original:
             return finding.model_copy(update={"severity_original": original})

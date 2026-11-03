@@ -68,6 +68,10 @@ class ToolDescriptor(BaseModel):
     applies_to: list[str] = Field(default_factory=list)
     """File name globs. The tool is skipped when no file in the project matches. Empty means always."""
     prepare: PrepareStep | None = None
+    severity_property: str | None = None
+    """SARIF property (on the result or its rule) that holds the tool's own severity word."""
+    severity_map: dict[str, str] = Field(default_factory=dict)
+    """Tool severity word (any case) -> critical, high, medium, low, or info."""
     target_mount: str = "/src"
     output_mount: str = "/out"
     cache_volumes: list[CacheVolume] = Field(default_factory=list)
@@ -91,6 +95,10 @@ class ToolDescriptor(BaseModel):
             raise ValueError(f"{self.name}: unknown output_format {self.output_format}")
         if self.output_format != "sarif" and not self.raw_output_filename:
             raise ValueError(f"{self.name}: output_format {self.output_format} needs raw_output_filename")
+        unified = {"critical", "high", "medium", "low", "info"}
+        bad = sorted(value for value in self.severity_map.values() if value not in unified)
+        if bad:
+            raise ValueError(f"{self.name}: severity_map values must be one of {sorted(unified)}, not {bad}")
         names = {volume.name for volume in self.cache_volumes}
         if self.prepare is not None and self.prepare.cache not in names:
             raise ValueError(f"{self.name}: prepare.cache {self.prepare.cache} is not in cache_volumes")

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.6.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "devskim",
+          "fullName": "Microsoft DevSkim Command Line Interface",
+          "version": "1.0.100+placeholder",
+          "informationUri": "https://github.com/microsoft/DevSkim/",
+          "rules": [
+            {
+              "id": "DS126858",
+              "name": "WeakOrBrokenHashAlgorithm",
+              "shortDescription": {"text": "Weak/Broken Hash Algorithm"},
+              "fullDescription": {"text": "Weak/Broken Hash Algorithm: Weak/Broken Hash Algorithm"},
+              "help": {"text": "Weak/Broken Hash Algorithm", "markdown": "Weak/Broken Hash Algorithm"},
+              "helpUri": "https://github.com/Microsoft/DevSkim/blob/main/guidance/DS126858.md",
+              "defaultConfiguration": {"enabled": true, "level": "error"},
+              "properties": {"precision": "high", "problem.severity": "warning", "DevSkimSeverity": "Important", "DevSkimConfidence": "High"}
+            },
+            {
+              "id": "DS137138",
+              "name": "InsecureUrl",
+              "shortDescription": {"text": "Insecure URL"},
+              "fullDescription": {"text": "Insecure URL: An HTTP-based URL without TLS was detected."},
+              "helpUri": "https://github.com/Microsoft/DevSkim/blob/main/guidance/DS137138.md",
+              "defaultConfiguration": {"enabled": true, "level": "warning"},
+              "properties": {"precision": "high", "problem.severity": "warning", "DevSkimSeverity": "Moderate", "DevSkimConfidence": "High"}
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "DS126858",
+          "level": "error",
+          "message": {"text": "Weak/Broken Hash Algorithm"},
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "main.go"},
+                "region": {"startLine": 24, "startColumn": 28, "endLine": 24, "endColumn": 31, "charOffset": 400, "charLength": 3, "snippet": {"text": "md5", "rendered": {"text": "md5", "markdown": "`md5`"}}, "sourceLanguage": "go"}
+              }
+            }
+          ],
+          "properties": {"DevSkimSeverity": "Important", "DevSkimConfidence": "High"}
+        },
+        {
+          "ruleId": "DS137138",
+          "level": "warning",
+          "message": {"text": "Insecure URL"},
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "web/app.js"},
+                "region": {"startLine": 3, "startColumn": 13, "endLine": 3, "endColumn": 20, "snippet": {"text": "http://"}}
+              }
+            }
+          ],
+          "properties": {"DevSkimSeverity": "Moderate", "DevSkimConfidence": "High"}
+        }
+      ]
+    }
+  ]
+}
