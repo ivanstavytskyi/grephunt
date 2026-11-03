@@ -9,6 +9,7 @@ export type Finding = {
   rule_id: string;
   title: string;
   message: string;
+  description?: string | null;
   severity: Severity;
   severity_original: string | null;
   cwe: string[];

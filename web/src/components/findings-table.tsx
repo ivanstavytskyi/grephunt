@@ -21,6 +21,23 @@ function rowKey(finding: Finding): string {
   return `${finding.fingerprint}:${finding.correlation_key}`;
 }
 
+function searchText(finding: Finding): string {
+  const where = finding.location ? locationLabel(finding.location) : "";
+  return [
+    finding.title,
+    finding.rule_id,
+    where,
+    finding.package,
+    finding.message,
+    finding.description,
+    ...(finding.cve ?? []),
+    ...(finding.cwe ?? []),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n")
+    .toLowerCase();
+}
+
 function sortFindings(rows: Finding[]): Finding[] {
   const copy = [...rows];
   copy.sort((left, right) => {
@@ -51,6 +68,11 @@ export const FindingsTable = memo(function FindingsTable({
   const parentRef = useRef<HTMLDivElement>(null);
   const needle = query.trim().toLowerCase();
 
+  const searchIndex = useMemo(
+    () => new Map(findings.map((item) => [item, searchText(item)] as const)),
+    [findings],
+  );
+
   const rows = useMemo(() => {
     const filtered = findings.filter((item) => {
       if (severity !== "all" && item.severity !== severity) return false;
@@ -60,12 +82,10 @@ export const FindingsTable = memo(function FindingsTable({
         if (!names.has(tool)) return false;
       }
       if (!needle) return true;
-      const where = item.location ? locationLabel(item.location) : "";
-      const haystack = `${item.title} ${item.rule_id} ${where} ${(item.cve ?? []).join(" ")} ${item.package ?? ""}`.toLowerCase();
-      return haystack.includes(needle);
+      return (searchIndex.get(item) ?? "").includes(needle);
     });
     return sortFindings(filtered);
-  }, [category, findings, needle, severity, tool]);
+  }, [category, findings, needle, searchIndex, severity, tool]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
