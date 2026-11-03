@@ -72,12 +72,13 @@ def test_dependency_aliases_collapse_to_one_finding():
     )
     other = _dep("grype", "jsonwebtoken", "CVE-2015-9235", cve=["CVE-2015-9235"], installed_version="8.5.1")
     merged = correlate([ghsa, cve, snyk, other])
-    assert len(merged) == 2
-    ids = {tuple(item.cve) for item in merged}
-    assert ("CVE-2015-9235",) in ids or any("CVE-2015-9235" in item.cve and len(item.cve) == 1 for item in merged)
-    combined = next(item for item in merged if "CVE-2022-23529" in item.cve)
+    # One package: one finding. Aliases of one advisory collapse; two advisories stay listed.
+    assert len(merged) == 1
+    combined = merged[0]
+    assert {"CVE-2022-23529", "CVE-2015-9235", "SNYK-JS-JSONWEBTOKEN-2944537"} <= set(combined.cve)
     assert "GHSA-hjrf-2m68-5959".lower() in [value.lower() for value in combined.cve]
-    assert "SNYK-JS-JSONWEBTOKEN-2944537" in combined.cve
+    assert [item.rule_id for item in combined.confirmations] == ["CVE-2015-9235", "CVE-2022-23529"] or len(combined.confirmations) == 2
+    assert combined.title.endswith("— 2 vulnerabilities")
     assert set(combined.tools) == {"grype", "osv-scanner", "snyk-open-source"}
     assert vulnerability_ids(snyk) == {"SNYK-JS-JSONWEBTOKEN-2944537", "CVE-2022-23529"}
 
@@ -145,3 +146,43 @@ def test_semgrep_always_loads_bundled_javascript_rules():
     assert "/rules/grephunt" in args
     mounts = dict((dest, host) for host, dest in hook.extra_mounts(ScanOptions(), True))
     assert mounts["/rules/grephunt"].name == "rules"
+
+
+def test_one_package_with_many_advisories_is_one_finding_with_the_fix_that_closes_all():
+    advisories = [
+        _dep("osv-scanner", "sanitize-html", "CVE-2016-1000237", cve=["CVE-2016-1000237"], installed_version="1.4.2"),
+        _dep("osv-scanner", "sanitize-html", "CVE-2017-16016", cve=["CVE-2017-16016"], installed_version="1.4.2"),
+        _dep("snyk-open-source", "sanitize-html", "SNYK-JS-SANITIZEHTML-1070786", cve=["CVE-2021-26539"], installed_version="1.4.2"),
+    ]
+    advisories[0] = advisories[0].model_copy(update={"fixed_version": "1.4.3"})
+    advisories[1] = advisories[1].model_copy(update={"fixed_version": "1.11.4", "severity": Severity.HIGH})
+    advisories[2] = advisories[2].model_copy(update={"fixed_version": "2.3.1"})
+    merged = correlate(advisories)
+    assert len(merged) == 1
+    finding = merged[0]
+    assert finding.title == "sanitize-html@1.4.2 — 3 vulnerabilities"
+    assert finding.fixed_version == "2.3.1"  # 2.3.1 > 1.11.4 > 1.4.3, compared as versions
+    assert finding.severity is Severity.HIGH
+    assert len(finding.confirmations) == 3 and "CVE-2017-16016" in finding.message
+
+
+def test_legacy_snyk_ids_are_dependencies_with_package_and_upgrade_path():
+    from grephunt.scanner_hooks.snyk import SnykHook
+
+    raw = Finding(tool="snyk-open-source", rule_id="npm:jsonwebtoken:20150331", severity=Severity.HIGH,
+                  title="High severity - Authentication Bypass vulnerability in jsonwebtoken",
+                  location=Location(path="package.json", start_line=1))
+    result = {
+        "locations": [{"logicalLocations": [{"fullyQualifiedName": "jsonwebtoken@0.1.0"}]}],
+        "fixes": [{"description": {"text": "Upgrade to express-jwt@3.0.0"}}],
+    }
+    rule = {"shortDescription": {"text": "High severity - Authentication Bypass vulnerability in jsonwebtoken"}, "fullDescription": {"text": ""}}
+    hook = load_tools()["snyk-open-source"].hook
+    assert isinstance(hook, SnykHook)
+    refined = hook.refine_finding(raw, result, rule)
+    assert refined.category is Category.DEPENDENCY
+    assert (refined.package, refined.installed_version) == ("jsonwebtoken", "0.1.0")
+    assert refined.evidence == "Fix: upgrade express-jwt to 3.0.0"
+    scoped = {"locations": [{"logicalLocations": [{"fullyQualifiedName": "@angular/core@12.0.0"}]}], "fixes": [{"description": {"text": "Upgrade to @angular/core@12.2.17"}}]}
+    angular = hook.refine_finding(raw.model_copy(update={"rule_id": "npm:@angular/core:20210601"}), scoped, rule)
+    assert (angular.package, angular.installed_version, angular.fixed_version) == ("@angular/core", "12.0.0", "12.2.17")

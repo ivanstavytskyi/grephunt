@@ -21,6 +21,18 @@ CLI_MOUNT = "/opt/snyk/snyk"
 _SEVERITY_WORD = re.compile(r"^(critical|high|medium|low) severity\b", re.IGNORECASE)
 _PACKAGE = re.compile(r"(?:\((?P<cves>[^)]*)\)\s*)?(?P<name>\S+)@(?P<version>\S+)\s*$")
 _CVE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
+# Older Snyk advisories: npm:jsonwebtoken:20150331, pip:django:20190730. They carry no CVE.
+_LEGACY_ID = re.compile(r"^(?:npm|pip|maven|golang|nuget|composer|rubygems|cocoapods|hex|cargo):(?P<name>.+):\d{8}$", re.IGNORECASE)
+_UPGRADE = re.compile(r"Upgrade to (?P<name>\S+)@(?P<version>\S+)", re.IGNORECASE)
+
+
+def _package_at_version(value: str) -> tuple[str, str] | None:
+    """'jsonwebtoken@0.1.0' or '@scope/name@1.2.3' -> (name, version)."""
+    value = value.strip()
+    if "@" not in value.lstrip("@"):
+        return None
+    name, _, version = value.rpartition("@")
+    return (name, version) if name and version else None
 
 
 class SnykHook(GenericHook):
@@ -61,7 +73,8 @@ class SnykHook(GenericHook):
         if word:
             update["severity"] = Severity(word.group(1).lower())
             update["severity_original"] = word.group(1).lower()
-        if finding.rule_id.upper().startswith("SNYK-"):
+        legacy = _LEGACY_ID.match(finding.rule_id)
+        if finding.rule_id.upper().startswith("SNYK-") or legacy:
             update["category"] = Category.DEPENDENCY
             package = _PACKAGE.search(full)
             if package:
@@ -70,4 +83,23 @@ class SnykHook(GenericHook):
                 cves = sorted({match.upper() for match in _CVE.findall(package.group("cves") or "")})
                 if cves:
                     update["cve"] = cves
+            # The result names the vulnerable package and version: logicalLocations "jsonwebtoken@0.1.0".
+            for location in result.get("locations") or []:
+                for logical in location.get("logicalLocations") or []:
+                    parsed = _package_at_version(str(logical.get("fullyQualifiedName") or ""))
+                    if parsed:
+                        update.setdefault("package", parsed[0])
+                        update.setdefault("installed_version", parsed[1])
+            if legacy and "package" not in update:
+                update["package"] = legacy.group("name")
+            # fixes: "Upgrade to express-jwt@3.0.0" upgrades the package itself or the one that pulls it in.
+            for fix in result.get("fixes") or []:
+                upgrade = _UPGRADE.search(str((fix.get("description") or {}).get("text") or ""))
+                if not upgrade:
+                    continue
+                if upgrade.group("name") == update.get("package", finding.package):
+                    update["fixed_version"] = upgrade.group("version")
+                else:
+                    update["evidence"] = f"Fix: upgrade {upgrade.group('name')} to {upgrade.group('version')}"
+                break
         return finding.model_copy(update=update) if update else finding

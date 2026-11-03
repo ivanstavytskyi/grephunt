@@ -415,6 +415,70 @@ def _cluster_by_shared_ids(group: list[Finding]) -> list[Finding]:
     return merged + _correlate_by_key(anonymous)
 
 
+_SEVERITY_PREFIX = re.compile(r"^(critical|high|medium|low) severity\s*-\s*", re.IGNORECASE)
+
+
+def _version_key(version: str) -> tuple:
+    return tuple((0, int(part)) if part.isdigit() else (1, part) for part in re.findall(r"\d+|[A-Za-z]+", version or ""))
+
+
+def _advisory_title(finding: Finding) -> str:
+    """What the advisory is about: 'Authentication Bypass vulnerability in jsonwebtoken', not 'jws@0.2.6'."""
+    title = _SEVERITY_PREFIX.sub("", finding.title or "")
+    package = finding.package or ""
+    if not title or (package and title.startswith(f"{package}@")):
+        return ""
+    return title[:140]
+
+
+def _fold_packages(findings: list[Finding]) -> list[Finding]:
+    """One finding per vulnerable package: 13 sanitize-html advisories are one upgrade, not 13 rows.
+
+    Each advisory (one CVE/GHSA/SNYK group, already merged across tools) stays listed in
+    confirmations and the message; the finding takes the worst severity and the fix
+    version that closes all of them.
+    """
+    groups: dict[str, list[Finding]] = {}
+    for finding in findings:
+        groups.setdefault(normalize_package(finding.package or ""), []).append(finding)
+    folded: list[Finding] = []
+    for name, items in groups.items():
+        if not name or len(items) == 1:
+            folded.extend(items)
+            continue
+        items.sort(key=lambda item: _RANK[item.severity])
+        kept = _merge_many(items)
+        versions = sorted({version.strip() for item in items for version in (item.installed_version or "").split(",") if version.strip()}, key=_version_key)
+        fixes = [item.fixed_version for item in items if item.fixed_version]
+        best_fix = max(fixes, key=_version_key) if fixes else None
+        confirmations: list[Confirmation] = []
+        lines: list[str] = []
+        for item in items:
+            ids = sorted(vulnerability_ids(item)) or [item.rule_id]
+            primary = next((value for value in ids if value.startswith("CVE-")), ids[0])
+            about = _advisory_title(item)
+            confirmations.append(Confirmation(tool="+".join(item.tools), rule_id=primary, title=about, severity=item.severity.value))
+            fix = f" (fixed in {item.fixed_version})" if item.fixed_version else ""
+            lines.append(f"- {item.severity.value} {', '.join(ids[:3])}{': ' + about if about else ''}{fix}")
+        package = items[0].package or name
+        version_text = versions[0] if len(versions) == 1 else f"({', '.join(versions)})" if versions else ""
+        at = f"@{version_text}" if len(versions) == 1 else f" {version_text}" if version_text else ""
+        notes = sorted({item.evidence for item in items if item.evidence and item.evidence.startswith("Fix:")})
+        message = f"{len(items)} vulnerabilities in {package}" + (f"; upgrading to {best_fix} fixes those with a known fix." if best_fix else ".")
+        message += "\n" + "\n".join(lines)
+        if notes:
+            message += "\n" + "\n".join(notes)
+        folded.append(kept.model_copy(update={
+            "title": f"{package}{at} — {len(items)} vulnerabilities",
+            "message": message,
+            "installed_version": ", ".join(versions) or kept.installed_version,
+            "fixed_version": best_fix,
+            "confirmations": confirmations,
+            "evidence": "; ".join(notes)[:600] if notes else kept.evidence,
+        }))
+    return folded
+
+
 def _correlate_dependencies(findings: list[Finding]) -> list[Finding]:
     by_package: dict[str, list[Finding]] = {}
     loose: list[Finding] = []
@@ -447,4 +511,4 @@ def correlate(findings: list[Finding], anchors: dict[str, set[int]] | None = Non
             dependencies.append(finding)
         else:
             code.append(finding)
-    return _correlate_places(code, anchors or {}) + _correlate_secrets(secrets) + _correlate_dependencies(dependencies)
+    return _correlate_places(code, anchors or {}) + _correlate_secrets(secrets) + _fold_packages(_correlate_dependencies(dependencies))
