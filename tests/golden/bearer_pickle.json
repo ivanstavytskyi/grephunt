@@ -1,0 +1,20 @@
+{
+  "critical": [
+    {
+      "cwe_ids": ["502"],
+      "id": "python_lang_avoid_pickle",
+      "title": "Usage of unsafe Pickle libraries",
+      "description": "## Description\n\nUsing pickle, _pickle and cPickle can make your application vulnerable to unsafe code execution. This is because the deserialization logic of these libraries allows for arbitrary code execution. It is best practices to avoid these libraries and to use a safer serialization formats like JSON.\n\n## Remediations\n\n- **Do not** use pickle or its derivatives for deserialization wherever possible. These libraries are open to security vulnerabilities.\n- **Do** use recommended safer formats like JSON, Protocol Buffers (protobuf) and MessagePack.\n  ```python\n    import msgpack #MessagePack\n\n    data = {'key': 'value'}\n    packed_data = msgpack.packb(data)\n  ```\n\n## References\n\n- [OWASP Deserialization cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html)\n",
+      "documentation_url": "https://docs.bearer.com/reference/rules/python_lang_avoid_pickle",
+      "line_number": 28,
+      "full_filename": "/src/app.py",
+      "filename": "app.py",
+      "source": {"start": 28, "end": 28, "column": {"start": 16, "end": 42}},
+      "sink": {"start": 28, "end": 28, "column": {"start": 16, "end": 42}, "content": ""},
+      "parent_line_number": 28,
+      "fingerprint": "97c590b3c24fe6d7133f6e4d3358ab50_0",
+      "old_fingerprint": "7b5d0a2e4a251f785a60d129c6a5983b_0",
+      "code_extract": "    return str(pickle.loads(request.data))"
+    }
+  ]
+}

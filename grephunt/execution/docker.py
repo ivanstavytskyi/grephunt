@@ -138,7 +138,7 @@ class DockerRunner:
     async def ensure_image(self, image: str) -> str | None:
         if image in self._ready:
             return None
-        if ":" not in image or image.endswith(":latest"):
+        if ":" not in image or image.rsplit(":", 1)[-1].startswith("latest"):
             return f"image {image} is not pinned to a version"
         check = await asyncio.create_subprocess_exec(
             "docker", "image", "inspect", image,

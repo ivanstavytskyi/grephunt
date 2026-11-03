@@ -123,7 +123,7 @@ class ScannerTool:
                     prepare_started,
                     on_event,
                     phase="prepare",
-                    label="warming CVE database (cached when possible)",
+                    label=getattr(self.hook, "prepare_label", "preparing scanner data (cached when possible)"),
                 )
             )
             try:
@@ -145,6 +145,9 @@ class ScannerTool:
             os.chmod(out_dir, 0o777)
         sarif_path = out_dir / self.descriptor.output_filename
         sarif_path.unlink(missing_ok=True)
+        raw_path = out_dir / self.descriptor.raw_output_filename if self.descriptor.raw_output_filename else None
+        if raw_path is not None:
+            raw_path.unlink(missing_ok=True)
         container_name = f"grephunt-{self.name}-{uuid.uuid4().hex[:8]}"
         network = self.hook.wants_network(self.descriptor, options)
 
@@ -223,6 +226,18 @@ class ScannerTool:
                 tool=self.name, status=TaskStatus.TIMEOUT, duration_sec=duration,
                 tool_version=version, image=self.descriptor.image, error=outcome.error,
             )
+        convert = getattr(self.hook, "convert_output", None)
+        if convert is not None and raw_path is not None and raw_path.exists():
+            try:
+                convert(raw_path, sarif_path, self.descriptor)
+            except (OSError, ValueError) as exc:
+                message = f"could not convert {raw_path.name} to SARIF: {exc}"
+                emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
+                return TaskRun(
+                    tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
+                    tool_version=version, image=self.descriptor.image, error=message,
+                )
+
         if not sarif_path.exists():
             raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""
             ascii_lines = [line.strip() for line in raw_tail.splitlines() if line.strip() and line.strip().isascii()]
