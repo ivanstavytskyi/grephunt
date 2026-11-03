@@ -114,7 +114,7 @@ export const FindingsTable = memo(function FindingsTable({
           const title = rowTitle(finding);
           return (
             <div
-              key={findingKey(finding)}
+              key={`${findingKey(finding)}:${virtualRow.index}`}
               className={`absolute left-0 top-0 grid w-full cursor-pointer items-center overflow-hidden ${COLUMNS} border-b border-ink-line/70 hover:bg-ink-raised ${active ? "bg-ink-raised" : ""} ${checked.has(findingKey(finding)) ? "bg-ink-raised/70" : ""}`}
               style={{ height: ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
               onClick={() => (editing ? onToggle(finding, !checked.has(findingKey(finding))) : onSelect(finding))}
