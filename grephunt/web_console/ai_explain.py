@@ -353,6 +353,191 @@ Scan data:
 """
 
 
+_CHAT_FINDINGS_MAX = 80
+_MAX_CHAT_MESSAGES = 40
+_MAX_CHAT_MESSAGE_CHARS = 8000
+
+
+_SCAN_REPORT_CHAT_PROMPT = """You are the security analyst who wrote the scan report below.
+The user is asking follow-up questions about that report and the underlying scan.
+
+Rules:
+- Answer in markdown (short paragraphs, bullets when helpful).
+- Ground answers in the report, scan summary, and reference findings when relevant.
+- Do not invent findings or file paths not present in the context.
+- Do not write exploit code, payloads, or step-by-step attack instructions.
+- If you cannot verify from context, say what would need manual review.
+
+Scan summary (JSON):
+"""
+
+
+def _scan_chat_digest(scan: dict, findings: list) -> dict:
+    rows = [item for item in findings if isinstance(item, dict)]
+    rows.sort(
+        key=lambda item: (
+            _SEVERITY_RANK.get(str(item.get("severity") or "info").lower(), 5),
+            str((item.get("location") or {}).get("path") or ""),
+        )
+    )
+    total = len(rows)
+    included = rows[:_CHAT_FINDINGS_MAX]
+    compact = len(included) >= _COMPACT_FINDINGS_THRESHOLD
+    by_severity: dict[str, int] = {}
+    by_category: dict[str, int] = {}
+    for item in rows:
+        sev = str(item.get("severity") or "info").lower()
+        cat = str(item.get("category") or "unknown").lower()
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+        by_category[cat] = by_category.get(cat, 0) + 1
+    source = resolve_scan_source(scan)
+    return {
+        "target_label": scan.get("target_label"),
+        "target_path": scan.get("target_path"),
+        "finding_count": total,
+        "included_in_prompt": len(included),
+        "truncated": total > len(included),
+        "counts_by_severity": by_severity,
+        "counts_by_category": by_category,
+        "scanners": scan.get("scanners"),
+        "source": source,
+        "findings": [_brief_finding(item, compact=compact) for item in included],
+    }
+
+
+def _normalize_chat_messages(messages: list) -> list[dict]:
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("messages must be a non-empty list")
+    if len(messages) > _MAX_CHAT_MESSAGES:
+        raise ValueError(f"too many chat messages (max {_MAX_CHAT_MESSAGES})")
+    out: list[dict] = []
+    for item in messages:
+        if not isinstance(item, dict):
+            raise ValueError("each message must be an object")
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            raise ValueError("message role must be user or assistant")
+        content = str(item.get("content") or "").strip()
+        if not content:
+            raise ValueError("message content is empty")
+        if len(content) > _MAX_CHAT_MESSAGE_CHARS:
+            content = content[: _MAX_CHAT_MESSAGE_CHARS - 3] + "..."
+        out.append({"role": role, "content": content})
+    if out[-1]["role"] != "user":
+        raise ValueError("the last message must be from the user")
+    return out
+
+
+def _gemini_chat(
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    *,
+    timeout_sec: float | None = None,
+) -> str:
+    if model not in GEMINI_MODELS:
+        raise ValueError(f"unknown Gemini model: {model}")
+    contents: list[dict] = []
+    for item in messages:
+        role = "model" if item["role"] == "assistant" else "user"
+        contents.append({"role": role, "parts": [{"text": item["content"]}]})
+    headers = {"x-goog-api-key": api_key}
+    body = _post(
+        f"{GEMINI_BASE}/models/{model}:generateContent",
+        {"contents": contents},
+        headers,
+        timeout_sec=timeout_sec,
+    )
+    answer = _gemini_text(body)
+    if not answer:
+        raise ProviderError(_gemini_empty_reason(body), None, "server")
+    return answer
+
+
+def _deepseek_chat(
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    *,
+    timeout_sec: float | None = None,
+) -> str:
+    if model not in DEEPSEEK_MODELS:
+        raise ValueError(f"unknown DeepSeek model: {model}")
+    body = _post(
+        DEEPSEEK_URL,
+        {"model": model, "messages": messages, "stream": False},
+        {"Authorization": f"Bearer {api_key}"},
+        timeout_sec=timeout_sec,
+    )
+    choices = body.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        raise ProviderError("DeepSeek returned an empty answer", None, "server")
+    answer = (choices[0].get("message") or {}).get("content") or ""
+    if not answer.strip():
+        reason = choices[0].get("finish_reason") or "unknown"
+        raise ProviderError(f"DeepSeek returned an empty answer (reason: {reason})", None, "server")
+    return answer.strip()
+
+
+def _call_chat(
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    *,
+    timeout_sec: float | None = None,
+) -> str:
+    key = (api_key or "").strip()
+    if not key:
+        raise ValueError("enter an API key")
+    if provider == "gemini":
+        return _gemini_chat(key, model, messages, timeout_sec=timeout_sec)
+    if provider == "deepseek":
+        return _deepseek_chat(key, model, messages, timeout_sec=timeout_sec)
+    raise ValueError("choose Gemini or DeepSeek")
+
+
+def chat_scan_report(
+    provider: str,
+    api_key: str,
+    model: str,
+    scan: dict,
+    findings: list,
+    report: str,
+    messages: list,
+) -> str:
+    report_text = (report or "").strip()
+    if not report_text:
+        raise ValueError("report text is missing")
+    if len(report_text) > 120_000:
+        report_text = report_text[:119_997] + "..."
+    transcript = _normalize_chat_messages(messages)
+    digest = _scan_chat_digest(scan, findings if isinstance(findings, list) else [])
+    context = (
+        _SCAN_REPORT_CHAT_PROMPT
+        + json.dumps(digest, ensure_ascii=False, separators=(",", ":"))
+        + "\n\n# Scan report you wrote\n\n"
+        + report_text
+    )
+    if len(transcript) == 1:
+        api_messages = [
+            {
+                "role": "user",
+                "content": context + "\n\n## Follow-up question\n\n" + transcript[0]["content"],
+            }
+        ]
+    else:
+        api_messages = [
+            {"role": "user", "content": context},
+            {
+                "role": "assistant",
+                "content": "I have the report and scan context. I will answer your follow-up questions.",
+            },
+            *transcript,
+        ]
+    return _call_chat(provider, api_key, model, api_messages, timeout_sec=120.0)
+
+
 def explain_scan_report(provider: str, api_key: str, model: str, scan: dict, findings: list) -> str:
     rows = [item for item in findings if isinstance(item, dict)]
     rows.sort(

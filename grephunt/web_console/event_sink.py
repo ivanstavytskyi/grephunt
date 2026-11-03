@@ -12,7 +12,7 @@ import queue
 import threading
 
 from grephunt.config import DEFAULT_TENANT
-from grephunt.database.tables import EventRow, FindingRow, ScanRow, TaskRow
+from grephunt.database.tables import DismissedFindingRow, EventRow, FindingRow, ScanRow, TaskRow
 from grephunt.scan_pipeline.events import EventType, ScanEvent
 
 _TASK_STATUS = {
@@ -125,6 +125,17 @@ def _apply_finding(session, scan_id: str, event: ScanEvent) -> None:
     fingerprint = str(payload.get("fingerprint") or "")
     correlation_key = str(payload.get("correlation_key") or "")
     if not fingerprint:
+        return
+    dismissed = (
+        session.query(DismissedFindingRow.id)
+        .filter(
+            DismissedFindingRow.scan_id == scan_id,
+            DismissedFindingRow.fingerprint == fingerprint,
+            DismissedFindingRow.correlation_key == correlation_key,
+        )
+        .first()
+    )
+    if dismissed is not None:
         return
     exists = (
         session.query(FindingRow.id)

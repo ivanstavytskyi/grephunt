@@ -1,0 +1,99 @@
+rules:
+  - id: grephunt.javascript.angular.bypass-security-trust-html
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      bypassSecurityTrustHtml marks HTML as trusted and disables Angular's XSS sanitizer.
+      Bind the value as text, or sanitize it before trusting it.
+    metadata:
+      cwe:
+        - "CWE-79"
+      category: security
+      technology:
+        - angular
+    paths:
+      exclude:
+        - "*.spec.ts"
+        - "*.spec.js"
+        - "*.test.ts"
+        - "*.test.js"
+    pattern: $SANITIZER.bypassSecurityTrustHtml($VALUE)
+
+  - id: grephunt.javascript.nosql.where
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      MongoDB $where evaluates the query as JavaScript. Request data inside that
+      expression lets a caller change the query (NoSQL injection).
+    metadata:
+      cwe:
+        - "CWE-943"
+      category: security
+    paths:
+      exclude:
+        - "*.spec.ts"
+        - "*.spec.js"
+        - "*.test.ts"
+        - "*.test.js"
+    pattern-regex: '\$where\s*:'
+
+  - id: grephunt.javascript.xxe.entity-loading
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      XML parsing substitutes entities or loads the DTD (XML_PARSE_NOENT, XML_PARSE_DTDLOAD,
+      noent:true, or a filesystem entity provider). Untrusted XML can read local files (XXE).
+    metadata:
+      cwe:
+        - "CWE-611"
+      category: security
+    paths:
+      exclude:
+        - "*.spec.ts"
+        - "*.spec.js"
+    pattern-either:
+      - pattern: $LIB.ParseOption.XML_PARSE_NOENT
+      - pattern: $LIB.ParseOption.XML_PARSE_DTDLOAD
+      - pattern: xmlRegisterFsInputProviders(...)
+      - pattern: |
+          { ..., noent: true, ... }
+
+  - id: grephunt.javascript.zip-slip
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      An archive entry name is written to disk. Reject names that escape the destination
+      directory after normalization (zip slip).
+    metadata:
+      cwe:
+        - "CWE-22"
+      category: security
+    paths:
+      exclude:
+        - "*.spec.ts"
+        - "*.spec.js"
+    pattern-either:
+      - pattern: |
+          $NAME = $ENTRY.path
+          ...
+          fs.createWriteStream($PREFIX + $NAME)
+      - pattern: |
+          $NAME = $ENTRY.path
+          ...
+          path.resolve($PREFIX + $NAME)
+
+  - id: grephunt.javascript.yaml.unsafe-load
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      yaml.load expands aliases and custom types. Untrusted YAML can exhaust memory
+      (a YAML bomb). Parse with a safe schema.
+    metadata:
+      cwe:
+        - "CWE-776"
+      category: security
+    paths:
+      exclude:
+        - "*.spec.ts"
+        - "*.spec.js"
+    pattern-regex: 'yaml\.load\s*\('

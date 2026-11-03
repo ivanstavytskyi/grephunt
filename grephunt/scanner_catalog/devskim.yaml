@@ -22,7 +22,7 @@ args:
   - -f
   - sarif
   - -g
-  - "**/.git/**,**/bin/**,**/obj/**,**/node_modules/**,**/vendor/**,**/*.min.js"
+  - "**/.git/**,**/bin/**,**/obj/**,**/node_modules/**,**/vendor/**,**/*.min.js,**/bom.json,**/*sbom*,**/*.cdx.json,**/*.spdx.json"
 output_filename: devskim.sarif
 # DevSkim writes only error, warning, and note. Its own scale is in DevSkimSeverity.
 severity_property: DevSkimSeverity

@@ -1,6 +1,6 @@
 import json
 
-from grephunt.web_console.ai_explain import _brief_finding, explain_scan_report
+from grephunt.web_console.ai_explain import _brief_finding, chat_scan_report, explain_scan_report
 
 
 def test_brief_finding_masks_and_truncates():
@@ -86,3 +86,53 @@ def test_explain_scan_report_includes_github_source(monkeypatch, tmp_path):
     payload = json.loads(sent["text"].split("Scan data:\n", 1)[1])
     assert payload["source"]["repository_url"] == "https://github.com/ivanstavytskyi/numberlink"
     assert payload["source"]["code_excerpts"]
+
+
+def test_chat_scan_report_sends_follow_up(monkeypatch):
+    sent = {}
+
+    def fake_chat(provider, api_key, model, messages, timeout_sec=None):
+        sent["messages"] = messages
+        sent["timeout_sec"] = timeout_sec
+        return "answer"
+
+    monkeypatch.setattr("grephunt.web_console.ai_explain._call_chat", fake_chat)
+    out = chat_scan_report(
+        "deepseek",
+        "key",
+        "deepseek-chat",
+        {"target_label": "demo"},
+        [{"severity": "high", "title": "x", "location": {}}],
+        "# Report\n\nBody",
+        [{"role": "user", "content": "Which issue first?"}],
+    )
+    assert out == "answer"
+    assert sent["timeout_sec"] == 120.0
+    assert len(sent["messages"]) == 1
+    assert "Follow-up question" in sent["messages"][0]["content"]
+    assert "Which issue first?" in sent["messages"][0]["content"]
+
+
+def test_chat_scan_report_keeps_history(monkeypatch):
+    sent = {}
+
+    def fake_chat(provider, api_key, model, messages, timeout_sec=None):
+        sent["messages"] = messages
+        return "ok"
+
+    monkeypatch.setattr("grephunt.web_console.ai_explain._call_chat", fake_chat)
+    chat_scan_report(
+        "gemini",
+        "key",
+        "gemini-2.5-flash",
+        {"target_label": "demo"},
+        [],
+        "report text",
+        [
+            {"role": "user", "content": "first?"},
+            {"role": "assistant", "content": "XSS"},
+            {"role": "user", "content": "why?"},
+        ],
+    )
+    roles = [m["role"] for m in sent["messages"]]
+    assert roles == ["user", "assistant", "user", "assistant", "user"]

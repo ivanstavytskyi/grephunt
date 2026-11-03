@@ -2,15 +2,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { Finding, ScanEvent, Severity, TaskSummary } from "@/api/types";
 import { ExplainAi } from "@/components/explain-ai";
+import { ScanExportButton } from "@/components/scan-export-button";
 import { ScanReportAi } from "@/components/scan-report-ai";
-import { FindingsTable } from "@/components/findings-table";
+import { describeFindingsFilter, filterFindings, type FindingsFilterState } from "@/lib/findings-filter";
+import { findingKey, FindingsTable } from "@/components/findings-table";
 import { SelectMenu } from "@/components/select-menu";
 import { PanelBoundary } from "@/components/panel-boundary";
 import { ScanMap } from "@/components/scan-map";
 import { Snippet } from "@/components/snippet";
 import { Badge } from "@/components/ui/badge";
 import { ScanRunParams } from "@/components/scan-run-params";
-import { fetchFindings, fetchLog, fetchScan, fetchTools, watchScan, type LiveChannel } from "@/lib/api";
+import { dismissFindings, fetchFindings, fetchLog, fetchScan, fetchTools, watchScan, type LiveChannel } from "@/lib/api";
 import { elapsedSeconds, formatDuration, locationLabel } from "@/lib/utils";
 
 const SEVERITIES: Array<Severity | "all"> = ["all", "critical", "high", "medium", "low", "info"];
@@ -53,6 +55,9 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
   const [query, setQuery] = useState("");
   const [tool, setTool] = useState("all");
   const [selected, setSelected] = useState<Finding | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(() => new Set());
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState("");
 
   useEffect(() => {
     if (status === "running") {
@@ -68,6 +73,8 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
   useEffect(() => {
     setLiveEvents([]);
     setSelected(null);
+    setChecked(new Set());
+    setRemoveError("");
     setTool("all");
     setChannel("closed");
   }, [scanId]);
@@ -93,6 +100,56 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
 
   const rows = findings.data ?? [];
   const deferredRows = useDeferredValue(rows);
+  const findingsFilter: FindingsFilterState = useMemo(
+    () => ({ severity, category, query, tool }),
+    [category, query, severity, tool],
+  );
+  const filteredFindingCount = useMemo(
+    () => filterFindings(rows, findingsFilter).length,
+    [findingsFilter, rows],
+  );
+
+  const toggleChecked = (finding: Finding, value: boolean) => {
+    const key = findingKey(finding);
+    setChecked((current) => {
+      const next = new Set(current);
+      if (value) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const toggleVisible = (visible: Finding[], value: boolean) => {
+    setChecked((current) => {
+      const next = new Set(current);
+      for (const finding of visible) {
+        const key = findingKey(finding);
+        if (value) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  const removeChecked = async () => {
+    const chosen = rows.filter((finding) => checked.has(findingKey(finding)));
+    if (chosen.length === 0) return;
+    setRemoving(true);
+    setRemoveError("");
+    try {
+      await dismissFindings(scanId, chosen);
+      setChecked(new Set());
+      if (selected && chosen.some((finding) => findingKey(finding) === findingKey(selected))) {
+        setSelected(null);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["findings", scanId] });
+      await queryClient.invalidateQueries({ queryKey: ["scan", scanId] });
+    } catch (error) {
+      setRemoveError(error instanceof Error ? error.message : "Could not remove findings");
+    } finally {
+      setRemoving(false);
+    }
+  };
   const events = useMemo(() => mergeLog(log.data ?? [], liveEvents), [liveEvents, log.data]);
 
   useEffect(() => {
@@ -209,7 +266,8 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
 
       {scan.data?.error && <p className="mt-4 text-sm text-rose-300">{scan.data.error}</p>}
 
-      <div className="mt-6 flex flex-wrap items-end gap-3">
+      <div className="mt-6 flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end gap-3">
         <label className="block">
           <span className="mb-1 block text-xs text-ink-muted">Search</span>
           <input
@@ -262,10 +320,35 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               .map((name) => ({ value: name.toLowerCase(), label: name })),
           ]}
         />
+        </div>
         <ScanReportAi scan={scan.data} findings={rows} />
       </div>
 
       <div className="mt-3 grid items-start gap-4 xl:grid-cols-[1fr_320px]">
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-line bg-ink-panel px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight text-ink-text">Findings report</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                {rows.length === 0
+                  ? "No findings yet"
+                  : describeFindingsFilter(findingsFilter, rows.length, filteredFindingCount)}
+                {rows.length > 0 && " · Markdown export includes metadata, summary, and evidence snippets"}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={removing || checked.size === 0}
+                onClick={() => void removeChecked()}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-rose-500/40 bg-ink-panel px-3.5 text-sm font-medium text-rose-100 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {removing ? "Removing…" : checked.size > 0 ? `Remove ${checked.size}` : "Remove"}
+              </button>
+              <ScanExportButton scan={scan.data} findings={rows} filter={findingsFilter} />
+            </div>
+          </div>
+          {removeError && <p className="mb-3 text-xs text-rose-200">{removeError}</p>}
         <PanelBoundary title="Findings">
           {findings.isLoading && rows.length === 0 ? (
             <p className="rounded-lg border border-ink-line px-3 py-8 text-sm text-ink-muted">Loading findings…</p>
@@ -278,11 +361,15 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
               tool={tool}
               selected={selected}
               onSelect={setSelected}
+              checked={checked}
+              onToggle={toggleChecked}
+              onToggleVisible={toggleVisible}
             />
           ) : (
             <p className="rounded-lg border border-ink-line px-3 py-8 text-sm text-ink-muted">Preparing table…</p>
           )}
         </PanelBoundary>
+        </div>
         <aside className="rounded-lg border border-ink-line bg-ink-panel p-4">
           {selected ? <FindingDetail finding={selected} /> : <p className="text-sm text-ink-muted">Select a row to see the evidence.</p>}
         </aside>

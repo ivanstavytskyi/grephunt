@@ -22,6 +22,18 @@ from grephunt.scanner_catalog.descriptor import ToolDescriptor
 
 _HEARTBEAT_SEC = 15
 
+_SNYK_CODE_DISABLED = (
+    "Snyk Code is turned off for this Snyk organization (SNYK-CODE-0005). "
+    "Enable Snyk Code in the organization settings, then scan again. "
+    "GrepHunt still runs its own JavaScript rules for Angular XSS, XXE, zip slip, NoSQL $where, and unsafe YAML."
+)
+
+
+def _explain_tool_failure(tool: str, tail: str) -> str:
+    if tool == "snyk-code" and "SNYK-CODE-0005" in tail:
+        return f"{_SNYK_CODE_DISABLED}\n{tail}"
+    return tail
+
 
 class ScannerTool:
     def __init__(self, descriptor: ToolDescriptor, hook) -> None:
@@ -250,12 +262,15 @@ class ScannerTool:
             raw_tail = outcome.stderr or outcome.stdout or outcome.error or ""
             ascii_lines = [line.strip() for line in raw_tail.splitlines() if line.strip() and line.strip().isascii()]
             tail = "\n".join(ascii_lines)[-2000:] or f"exit code {outcome.returncode}"
-            message = f"exit code {outcome.returncode}: {tail.splitlines()[-1][:400]}"
-            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
-            return TaskRun(
-                tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
-                tool_version=version, image=self.descriptor.image, error=tail,
-            )
+            tail = _explain_tool_failure(self.name, tail)
+            report_ready = self.name == "snyk-code" and sarif_path.is_file() and sarif_path.stat().st_size > 2
+            if not report_ready:
+                message = f"exit code {outcome.returncode}: {tail.splitlines()[-1][:400]}"
+                emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "failed"}))
+                return TaskRun(
+                    tool=self.name, status=TaskStatus.FAILED, duration_sec=duration,
+                    tool_version=version, image=self.descriptor.image, error=tail,
+                )
 
         if self.descriptor.output_source == "stdout" and outcome.stdout.strip():
             # Tools that print the report exit non-zero when they find something. The report still counts.
@@ -329,7 +344,7 @@ class ScannerTool:
             sarif_path=sarif_path,
             findings=findings,
         )
-        emit_tool_findings(on_event, finished, options)
+        emit_tool_findings(on_event, finished, options, project)
         emit(
             on_event,
             ScanEvent(

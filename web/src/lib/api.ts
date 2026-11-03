@@ -33,6 +33,23 @@ export async function fetchFindings(id: string): Promise<Finding[]> {
   return response.json();
 }
 
+export async function dismissFindings(
+  id: string,
+  findings: Array<Pick<Finding, "fingerprint" | "correlation_key">>,
+): Promise<void> {
+  const response = await fetch(`/api/scans/${id}/findings/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      findings: findings.map((finding) => ({
+        fingerprint: finding.fingerprint,
+        correlation_key: finding.correlation_key,
+      })),
+    }),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+}
+
 export async function startScan(input: {
   path?: string;
   archive?: File | null;

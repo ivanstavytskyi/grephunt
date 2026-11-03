@@ -7,17 +7,36 @@ from pathlib import Path
 
 from grephunt.finding_model.correlation import correlate
 from grephunt.finding_model.record import Finding, ScanResult, TaskRun, TaskStatus
+from grephunt.scan_pipeline.dependency_scope import is_unreferenced_dependency, suppressed_packages
 from grephunt.scan_pipeline.events import EventHandler, EventType, ScanEvent, emit
+from grephunt.scan_pipeline.noise import is_noise
 from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scan_pipeline.excludes import is_excluded
 from grephunt.report_output.sarif_export import merge_sarif_files
 
 
-def emit_tool_findings(on_event: EventHandler | None, run: TaskRun, options: ScanOptions) -> None:
+def accept_finding(finding: Finding, options: ScanOptions, suppressed: set[str]) -> bool:
+    """False for ignored paths, known-noisy rules, and npm packages the app does not use."""
+    if is_excluded(finding.location.path or "", options.excludes):
+        return False
+    if is_noise(finding):
+        return False
+    if is_unreferenced_dependency(finding, suppressed):
+        return False
+    return True
+
+
+def emit_tool_findings(
+    on_event: EventHandler | None,
+    run: TaskRun,
+    options: ScanOptions,
+    project: Path | None = None,
+) -> None:
     if run.status is not TaskStatus.SUCCESS or not run.findings:
         return
+    suppressed = suppressed_packages(project)
     for finding in run.findings:
-        if is_excluded(finding.location.path or "", options.excludes):
+        if not accept_finding(finding, options, suppressed):
             continue
         where = finding.location.label or finding.rule_id
         emit(
@@ -66,7 +85,8 @@ async def run_scan(
 
     runs = list(await asyncio.gather(*(one(tool) for tool in tools)))
     raw: list[Finding] = [finding for run in runs for finding in run.findings]
-    kept = [finding for finding in raw if not is_excluded(finding.location.path or "", options.excludes)]
+    suppressed = suppressed_packages(project)
+    kept = [finding for finding in raw if accept_finding(finding, options, suppressed)]
     findings = correlate(kept)
 
     sarif_files = [run.sarif_path for run in runs if run.sarif_path and run.sarif_path.exists()]

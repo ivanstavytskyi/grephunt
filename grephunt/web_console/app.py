@@ -23,6 +23,7 @@ from grephunt.web_console.ai_explain import (
     DEEPSEEK_MODELS,
     GEMINI_MODELS,
     ProviderError,
+    chat_scan_report,
     check_key,
     explain_finding,
     explain_scan_report,
@@ -32,6 +33,7 @@ from grephunt.web_console.uploads import safe_extract
 from grephunt.scan_pipeline.image_archive import detect_image_format
 from grephunt.web_console.scans import (
     create_scan,
+    dismiss_findings,
     get_events,
     get_findings,
     get_scan,
@@ -235,6 +237,28 @@ def findings(scan_id: str) -> list[dict]:
     if found is None:
         raise HTTPException(status_code=404, detail="scan not found")
     return found
+
+
+@app.post("/api/scans/{scan_id}/findings/dismiss")
+def dismiss_scan_findings(scan_id: str, body: dict = Body()) -> dict:
+    raw = body.get("findings")
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(status_code=400, detail="findings list is missing")
+    keys: list[tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        fingerprint = str(item.get("fingerprint") or "").strip()
+        if fingerprint:
+            keys.append((fingerprint, str(item.get("correlation_key") or "")))
+    if not keys:
+        raise HTTPException(status_code=400, detail="findings list is missing")
+    if len(keys) > 5000:
+        raise HTTPException(status_code=400, detail="too many findings")
+    removed = dismiss_findings(scan_id, keys)
+    if removed is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return {"removed": removed}
 
 
 @app.get("/api/scans/{scan_id}/log")
@@ -557,6 +581,35 @@ def ai_scan_report(body: dict = Body()) -> dict:
             str(body.get("model") or ""),
             scan,
             findings,
+        )
+    except (ValueError, ProviderError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"text": text}
+
+
+@app.post("/api/ai/scan-report/chat")
+def ai_scan_report_chat(body: dict = Body()) -> dict:
+    scan = body.get("scan")
+    findings = body.get("findings")
+    report = body.get("report")
+    messages = body.get("messages")
+    if not isinstance(scan, dict):
+        raise HTTPException(status_code=400, detail="scan summary is missing")
+    if not isinstance(findings, list):
+        raise HTTPException(status_code=400, detail="findings list is missing")
+    if not isinstance(report, str) or not report.strip():
+        raise HTTPException(status_code=400, detail="report text is missing")
+    if not isinstance(messages, list):
+        raise HTTPException(status_code=400, detail="messages list is missing")
+    try:
+        text = chat_scan_report(
+            str(body.get("provider") or ""),
+            str(body.get("api_key") or ""),
+            str(body.get("model") or ""),
+            scan,
+            findings,
+            report,
+            messages,
         )
     except (ValueError, ProviderError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

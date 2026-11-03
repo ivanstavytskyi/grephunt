@@ -80,7 +80,7 @@ export function ScanReportAi({
 
   return (
     <>
-      <div className="ml-auto flex min-w-[12rem] flex-col items-stretch gap-2">
+      <div className="flex min-w-[12rem] flex-col items-stretch gap-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -118,11 +118,12 @@ export function ScanReportAi({
         {error && <p className="text-xs text-ink-muted">{error}</p>}
       </div>
 
-      {reportOpen && report && (
+      {reportOpen && report && saved && (
         <AiScanReportView
           report={report}
           findings={findings}
-          targetLabel={scan?.target_label}
+          scan={scan}
+          aiKey={saved}
           onClose={() => setReportOpen(false)}
         />
       )}

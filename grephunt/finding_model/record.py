@@ -113,13 +113,19 @@ class Finding(BaseModel):
     @computed_field
     @property
     def correlation_key(self) -> str:
-        """Correlation inside one scan. The line number is part of the key."""
+        """Correlation inside one scan.
+
+        Secrets use the file and rule, not the line: the same detector
+        repeated through users.yml is one problem. Other categories still
+        include the line. Same-line hits from other secret rules are folded
+        in during correlation.
+        """
         if self.category is Category.DEPENDENCY and self.cve:
             return self._dependency_identity()
         path = self.location.path or ""
         line = self.location.start_line
         if self.category is Category.SECRET:
-            return f"secret:{path}:{line}"
+            return f"secret:{path}:{self.rule_id}"
         if self.cwe:
             return f"{self.category.value}:{path}:{line}:{','.join(sorted(self.cwe))}"
         return f"{self.category.value}:{path}:{line}:{self.tool}:{self.rule_id}"
