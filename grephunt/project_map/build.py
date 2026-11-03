@@ -39,6 +39,9 @@ KNOWN_DEPENDENCIES = {
     "psycopg2-binary": ("datastore", "PostgreSQL"), "pymongo": ("datastore", "MongoDB"),
     "pymysql": ("datastore", "MySQL"), "mysqlclient": ("datastore", "MySQL"),
     "doctrine/orm": ("datastore", "Doctrine (SQL)"), "gorm.io/gorm": ("datastore", "GORM (SQL)"),
+    "marsdb": ("datastore", "MarsDB (NoSQL)"), "better-sqlite3": ("datastore", "SQLite"), "mariadb": ("datastore", "MySQL"),
+    "mssql": ("datastore", "SQL Server"), "tedious": ("datastore", "SQL Server"), "flask_sqlalchemy": ("datastore", "SQLAlchemy (SQL)"),
+    "flask-sqlalchemy": ("datastore", "SQLAlchemy (SQL)"), "mongoengine": ("datastore", "MongoDB"),
 }
 
 
@@ -220,10 +223,12 @@ def build_project_map(root: Path, label: str | None = None) -> ProjectMap:
     for path, file_facts in facts.items():
         resolver.learn_declarations(path, languages.get(path) or "", file_facts.declares)
     files_view, unresolved, packages = build_files_view(inventory, facts, resolver)
+    stack = detect_stack(inventory, manifests, {key.partition(":")[2] for key in packages})
 
     from grephunt.project_map.architecture import build_architecture_view
 
-    architecture = build_architecture_view(inventory, facts, manifests, files_view)
+    architecture = build_architecture_view(inventory, facts, manifests, files_view, resolver, stack)
+    arch_kinds = Counter(node.kind for node in architecture.nodes)
     roles = Counter(info.role for info in inventory.files)
     stats = {
         "files": len(inventory.files),
@@ -234,11 +239,16 @@ def build_project_map(root: Path, label: str | None = None) -> ProjectMap:
         "import_edges": sum(1 for edge in files_view.edges if edge.kind == "import"),
         "external_packages": len(packages),
         "entry_points": sorted(node.path for node in files_view.nodes if node.entry_point and node.path),
+        "routes": sum(1 for node in architecture.nodes if node.kind == "route" and not node.meta.get("unmatched")),
+        "unmatched_calls": sum(1 for node in architecture.nodes if node.meta.get("unmatched")),
+        "http_links": sum(1 for edge in architecture.edges if edge.kind == "http" and not edge.target.startswith(("u:", "x:"))),
+        "datastores": arch_kinds.get("datastore", 0),
+        "dynamic_sql": sum(node.meta.get("dynamic_sql", 0) for node in architecture.nodes),
     }
     return ProjectMap(
         root_label=label or inventory.root.name,
         stats=stats,
-        stack=detect_stack(inventory, manifests, {key.partition(":")[2] for key in packages}),
+        stack=stack,
         files=files_view,
         architecture=architecture,
         unresolved=unresolved[:500],

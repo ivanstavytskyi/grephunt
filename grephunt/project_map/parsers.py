@@ -22,6 +22,8 @@ class ImportFact:
     text: str = ""
     complete: bool = True
     """False when the path is built at run time and only a fragment is known."""
+    names: list[str] = field(default_factory=list)
+    """Local names the import binds: 'searchProducts', 'models' for 'import * as models'."""
 
 
 @dataclass
@@ -32,10 +34,23 @@ class FileFacts:
     """Go package name, Java/PHP namespace or package."""
     declares: list[str] = field(default_factory=list)
     """Fully qualified names this file declares (PHP classes, Java types)."""
+    functions: list[str] = field(default_factory=list)
+    """Top-level function names (used to find the file behind a Go handler like handlers.Login)."""
     routes: list = field(default_factory=list)
     http_calls: list = field(default_factory=list)
     db_calls: list = field(default_factory=list)
+    inputs: list = field(default_factory=list)
+    engines: list = field(default_factory=list)
+    mounts: list = field(default_factory=list)
+    page: bool = False
+    """PHP: the file runs code at the top level, so a request to it does something."""
     errors: bool = False
+
+    def binding(self, name: str) -> ImportFact | None:
+        for fact in self.imports:
+            if name in fact.names:
+                return fact
+        return None
 
 
 _MAIN_GUARD = re.compile(r"""__name__\s*==\s*['"]__main__['"]""")
@@ -155,22 +170,28 @@ def _python(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
             for child in node.named_children:
                 target = child.child_by_field_name("name") if child.type == "aliased_import" else child
                 if target is not None and target.type == "dotted_name":
-                    facts.imports.append(ImportFact(text(target), line_of(node), "import", snippet(source, node)))
+                    alias = child.child_by_field_name("alias") if child.type == "aliased_import" else None
+                    bound = text(alias) if alias is not None else text(target).split(".")[0]
+                    facts.imports.append(ImportFact(text(target), line_of(node), "import", snippet(source, node), names=[bound]))
         elif node.type == "import_from_statement":
             module = node.child_by_field_name("module_name")
             if module is None:
                 continue
             spec = text(module)
-            names = [
-                text(child.child_by_field_name("name") if child.type == "aliased_import" else child)
-                for child in node.children_by_field_name("name")
-            ]
-            if spec.strip(".") == "" and names:
+            pairs = []
+            for child in node.children_by_field_name("name"):
+                if child.type == "aliased_import":
+                    alias = child.child_by_field_name("alias")
+                    original = text(child.child_by_field_name("name"))
+                    pairs.append((original, text(alias) if alias is not None else original))
+                else:
+                    pairs.append((text(child), text(child)))
+            if spec.strip(".") == "" and pairs:
                 # "from . import views": each name may be a module.
-                for name in names:
-                    facts.imports.append(ImportFact(spec + name, line_of(node), "import", snippet(source, node)))
+                for original, bound in pairs:
+                    facts.imports.append(ImportFact(spec + original, line_of(node), "import", snippet(source, node), names=[bound]))
             else:
-                facts.imports.append(ImportFact(spec, line_of(node), "import", snippet(source, node)))
+                facts.imports.append(ImportFact(spec, line_of(node), "import", snippet(source, node), names=[bound for _, bound in pairs]))
         elif node.type == "if_statement":
             condition = text(node.child_by_field_name("condition"))
             if _MAIN_GUARD.search(condition):
@@ -181,13 +202,54 @@ def _python(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
                 facts.entry_point = True
 
 
+def _js_import_names(node: ts.Node) -> list[str]:
+    names = []
+    for clause in node.children:
+        if clause.type != "import_clause":
+            continue
+        for part in clause.named_children:
+            if part.type == "identifier":
+                names.append(text(part))
+            elif part.type == "namespace_import":
+                names += [text(child) for child in part.named_children if child.type == "identifier"]
+            elif part.type == "named_imports":
+                for spec in part.named_children:
+                    if spec.type == "import_specifier":
+                        alias = spec.child_by_field_name("alias") or spec.child_by_field_name("name")
+                        names.append(text(alias))
+    return names
+
+
+def _js_require_names(call: ts.Node) -> list[str]:
+    """const x = require('y'), const { a, b: c } = require('y')."""
+    parent = call.parent
+    while parent is not None and parent.type in {"await_expression", "parenthesized_expression"}:
+        parent = parent.parent
+    if parent is None or parent.type != "variable_declarator":
+        return []
+    target = parent.child_by_field_name("name")
+    if target is None:
+        return []
+    if target.type == "identifier":
+        return [text(target)]
+    names = []
+    for part in target.named_children:
+        if part.type == "shorthand_property_identifier_pattern":
+            names.append(text(part))
+        elif part.type == "pair_pattern":
+            value = part.child_by_field_name("value")
+            if value is not None and value.type == "identifier":
+                names.append(text(value))
+    return names
+
+
 def _javascript(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
     for node in walk(tree.root_node):
         if node.type in {"import_statement", "export_statement"}:
             module = node.child_by_field_name("source")
             value = string_value(module)
             if value is not None:
-                facts.imports.append(ImportFact(value, line_of(node), "import", snippet(source, node)))
+                facts.imports.append(ImportFact(value, line_of(node), "import", snippet(source, node), names=_js_import_names(node)))
         elif node.type == "call_expression":
             function = node.child_by_field_name("function")
             arguments = node.child_by_field_name("arguments")
@@ -197,7 +259,7 @@ def _javascript(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
                 value = string_value(first)
                 kind = "require" if name == "require" else "dynamic"
                 if value is not None:
-                    facts.imports.append(ImportFact(value, line_of(node), kind, snippet(source, node)))
+                    facts.imports.append(ImportFact(value, line_of(node), kind, snippet(source, node), names=_js_require_names(node)))
                 elif first is not None:
                     facts.imports.append(ImportFact(text(first)[:80], line_of(node), kind, snippet(source, node), complete=False))
             elif name.endswith(".listen") or name in {"createServer", "http.createServer", "https.createServer", "bootstrapApplication", "platformBrowserDynamic().bootstrapModule"}:
@@ -232,7 +294,10 @@ def _php(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
                 if clause.type == "namespace_use_clause":
                     name = clause.named_children[0] if clause.named_children else None
                     if name is not None:
-                        facts.imports.append(ImportFact(text(name).lstrip("\\"), line_of(node), "use", snippet(source, node)))
+                        spec = text(name).lstrip("\\")
+                        alias = clause.named_children[-1] if len(clause.named_children) > 1 else None
+                        bound = text(alias) if alias is not None and alias.type == "name" else spec.split("\\")[-1]
+                        facts.imports.append(ImportFact(spec, line_of(node), "use", snippet(source, node), names=[bound]))
         elif node.type in {"class_declaration", "interface_declaration", "trait_declaration", "enum_declaration"}:
             name = node.child_by_field_name("name")
             if name is not None:
@@ -248,9 +313,15 @@ def _go(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
             path = node.child_by_field_name("path")
             value = string_value(path)
             if value is not None:
-                facts.imports.append(ImportFact(value, line_of(node), "import", snippet(source, node)))
-        elif node.type == "function_declaration" and text(node.child_by_field_name("name")) == "main":
-            facts.entry_point = facts.package == "main"
+                alias = node.child_by_field_name("name")
+                parts = [part for part in value.split("/") if not re.fullmatch(r"v\d+", part)]
+                bound = text(alias) if alias is not None else (parts[-1] if parts else value)
+                facts.imports.append(ImportFact(value, line_of(node), "import", snippet(source, node), names=[bound.replace("-", "_")]))
+        elif node.type == "function_declaration":
+            name = text(node.child_by_field_name("name"))
+            facts.functions.append(name)
+            if name == "main":
+                facts.entry_point = facts.package == "main"
 
 
 def _java(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
@@ -264,9 +335,11 @@ def _java(tree: ts.Tree, source: bytes, facts: FileFacts) -> None:
             names = [child for child in node.named_children if child.type in {"scoped_identifier", "identifier"}]
             if names:
                 spec = text(names[0])
-                if any(child.type == "asterisk" for child in node.children):
+                star = any(child.type == "asterisk" for child in node.children)
+                bound = [] if star else [spec.split(".")[-1]]
+                if star:
                     spec += ".*"
-                facts.imports.append(ImportFact(spec, line_of(node), "import", snippet(source, node)))
+                facts.imports.append(ImportFact(spec, line_of(node), "import", snippet(source, node), names=bound))
         elif node.type in {"class_declaration", "interface_declaration", "enum_declaration", "record_declaration"}:
             name = node.child_by_field_name("name")
             if name is not None and node.parent is not None and node.parent.type == "program":

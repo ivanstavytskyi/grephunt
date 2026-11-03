@@ -175,3 +175,158 @@ def test_old_scans_get_a_map_on_request(tmp_path: Path, monkeypatch):
     assert any(node["path"] == "main.go" for node in rebuilt.json()["files"]["nodes"])
     _scan_row("map3", tmp_path / "gone")
     assert client.post("/api/scans/map3/map").status_code == 409
+
+
+# --- architecture view ------------------------------------------------------------------------
+
+
+def _arch(project_map, kind: str | None = None) -> set[tuple[str, str]]:
+    return {(edge.source, edge.target) for edge in project_map.architecture.edges if kind is None or edge.kind == kind}
+
+
+def _node(project_map, node_id: str):
+    return next(node for node in project_map.architecture.nodes if node.id == node_id)
+
+
+def test_express_chain_from_angular_service_to_sqlite(tmp_path: Path):
+    _write(tmp_path, {
+        "server.ts": (
+            "import express from 'express'\nimport * as utils from './lib/utils'\nimport * as security from './lib/insecurity'\n"
+            "import { searchProducts } from './routes/search'\nconst app = express()\n"
+            "app.get('/rest/products/search', security.isAuthorized(), utils.asyncHandler(searchProducts()))\n"
+            "app.listen(3000)\n"
+        ),
+        "lib/utils.ts": "export function asyncHandler (fn) { return fn }\n",
+        "lib/insecurity.ts": "export function isAuthorized () { return (req, res, next) => next() }\n",
+        "routes/search.ts": (
+            "import * as models from '../models/index'\nexport function searchProducts () {\n  return (req, res) => {\n"
+            "    const criteria = req.query.q\n"
+            "    models.sequelize.query(`SELECT * FROM Products WHERE name LIKE '%${criteria}%'`)\n  }\n}\n"
+        ),
+        "models/index.ts": "import { Sequelize } from 'sequelize'\nexport const sequelize = new Sequelize('db', 'u', 'p', { dialect: 'sqlite' })\n",
+        "frontend/src/app/product.service.ts": (
+            "import { HttpClient } from '@angular/common/http'\nimport { environment } from '../environments/environment'\n"
+            "export class ProductService {\n  private readonly hostServer = environment.hostServer\n"
+            "  constructor (private readonly http: HttpClient) {}\n"
+            "  search (q: string) { return this.http.get(`${this.hostServer}/rest/products/search?q=${q}`) }\n"
+            "  missing () { return this.http.post(this.hostServer + '/rest/nowhere', {}) }\n}\n"
+        ),
+        # A snippet that no running code loads: its route must not show up.
+        "data/static/codefixes/searchFix.ts": "import express from 'express'\nconst app = express()\napp.get('/rest/products/search', (req, res) => res.send())\n",
+    })
+    built = build_project_map(tmp_path)
+    route = "r:GET /rest/products/search"
+    edges = _arch(built)
+    assert ("f:frontend/src/app/product.service.ts", route) in edges
+    assert (route, "f:routes/search.ts") in edges
+    assert ("f:routes/search.ts", "o:sequelize") in edges
+    assert ("o:sequelize", "s:sqlite") in edges
+    assert not any(target == "f:data/static/codefixes/searchFix.ts" for _, target in edges)
+    meta = _node(built, route).meta
+    assert meta["handler"] == "routes/search.ts:searchProducts"
+    assert meta["params"][0]["name"] == "q" and meta["params"][0]["source"] == "query"
+    assert meta["middleware"] == ["security.isAuthorized", "utils.asyncHandler"]
+    db_edge = next(edge for edge in built.architecture.edges if edge.source == "f:routes/search.ts")
+    assert "(dynamic)" in db_edge.label and db_edge.evidence[0].line == 5
+    assert _node(built, "f:frontend/src/app/product.service.ts").layer == "frontend"
+    assert _node(built, "u:POST */rest/nowhere").meta["unmatched"] is True
+    assert built.stats["routes"] == 1 and built.stats["dynamic_sql"] == 1
+
+
+def test_flask_routes_inputs_forms_and_sqlite(tmp_path: Path):
+    _write(tmp_path, {
+        "app.py": (ROOT / "samples" / "vuln_flask" / "app.py").read_text(encoding="utf-8"),
+        "templates/user.html": '<form action="{{ url_for(\'user\') }}" method="get"><input name="id"></form>\n',
+    })
+    built = build_project_map(tmp_path)
+    edges = _arch(built)
+    assert {("r:GET /user", "f:app.py"), ("r:POST /load", "f:app.py"), ("f:app.py", "s:sqlite")} <= edges
+    assert ("f:templates/user.html", "r:GET /user") in edges
+    assert _node(built, "r:GET /user").meta["params"] == [{"source": "query", "name": "id", "line": 15}]
+    assert _node(built, "f:app.py").meta["dynamic_sql"] == 1
+
+
+def test_php_pages_with_superglobals_and_mysqli(tmp_path: Path):
+    _write(tmp_path, {
+        "vulnerabilities/sqli/source/low.php": (
+            "<?php\nif (isset($_REQUEST['Submit'])) {\n  $id = $_REQUEST['id'];\n"
+            "  $query = \"SELECT first_name FROM users WHERE user_id = '$id';\";\n"
+            "  $result = mysqli_query($GLOBALS['___mysqli_ston'], $query);\n}\n"
+        ),
+        "vulnerabilities/sqli/source/impossible.php": "<?php\n$id = $_GET['id'];\n$data = $db->prepare('SELECT first_name FROM users WHERE user_id = (:id) LIMIT 1;');\n",
+        "dvwa/includes/dvwaPage.inc.php": "<?php\n$level = $_COOKIE['security'];\nfunction dvwaHtml() {}\n",
+        "config/config.inc.php": "<?php\n$db = mysqli_connect('127.0.0.1', 'dvwa', 'p@ss');\n",
+    })
+    built = build_project_map(tmp_path)
+    routes = {node.id for node in built.architecture.nodes if node.kind == "route"}
+    assert routes == {"r:ANY /vulnerabilities/sqli/source/low.php", "r:GET /vulnerabilities/sqli/source/impossible.php"}
+    low = next(edge for edge in built.architecture.edges if edge.source == "f:vulnerabilities/sqli/source/low.php")
+    assert low.target == "s:mysql" and "(dynamic)" in low.label
+    safe = next(edge for edge in built.architecture.edges if edge.source == "f:vulnerabilities/sqli/source/impossible.php")
+    assert "(dynamic)" not in safe.label
+    params = _node(built, "r:ANY /vulnerabilities/sqli/source/low.php").meta["params"]
+    assert {item["name"] for item in params} == {"Submit", "id"}
+
+
+def test_spring_controller_service_repository_and_compose(tmp_path: Path):
+    java = "src/main/java/shop"
+    _write(tmp_path, {
+        f"{java}/App.java": "package shop;\n@SpringBootApplication\npublic class App { public static void main(String[] a) {} }\n",
+        f"{java}/web/UserController.java": (
+            "package shop.web;\nimport shop.service.UserService;\nimport org.springframework.web.bind.annotation.*;\n"
+            "@RestController\n@RequestMapping(\"/api\")\npublic class UserController {\n"
+            "  @GetMapping(\"/users/{id}\")\n  public String get(@PathVariable String id, @RequestParam(name = \"q\") String q) { return \"\"; }\n}\n"
+        ),
+        f"{java}/service/UserService.java": "package shop.service;\nimport shop.repo.UserRepository;\npublic class UserService {}\n",
+        f"{java}/repo/UserRepository.java": (
+            "package shop.repo;\nimport org.springframework.data.jpa.repository.JpaRepository;\n"
+            "public interface UserRepository extends JpaRepository<User, Long> {}\n"
+        ),
+        "web/src/main.js": "export async function load (id) { return fetch(`/api/users/${id}`) }\n",
+        "docker-compose.yml": "services:\n  backend:\n    build: .\n    depends_on:\n      - db\n  db:\n    image: postgres:16\n",
+    })
+    built = build_project_map(tmp_path)
+    edges = _arch(built)
+    controller = f"f:{java}/web/UserController.java"
+    assert ("f:web/src/main.js", "r:GET /api/users/{id}") in edges
+    assert ("r:GET /api/users/{id}", controller) in edges
+    assert (controller, f"f:{java}/repo/UserRepository.java") in edges
+    assert (f"f:{java}/repo/UserRepository.java", "o:spring-data") in edges
+    assert ("o:spring-data", "s:postgresql") in edges
+    assert ("svc:backend", "s:postgresql") in edges
+    service_edge = next(edge for edge in built.architecture.edges if edge.kind == "service")
+    assert service_edge.evidence[0].line == 4
+    params = {item["name"] for item in _node(built, "r:GET /api/users/{id}").meta["params"]}
+    assert params == {"id", "q"}
+
+
+def test_go_group_prefix_and_handler_in_another_package(tmp_path: Path):
+    _write(tmp_path, {
+        "go.mod": "module example.com/shop\n\ngo 1.22\n",
+        "main.go": (
+            'package main\n\nimport (\n\t"github.com/gin-gonic/gin"\n\t"example.com/shop/handlers"\n)\n\n'
+            'func main() {\n\tr := gin.Default()\n\tv1 := r.Group("/v1")\n\tv1.GET("/users/:id", handlers.GetUser)\n\tr.Run()\n}\n'
+        ),
+        "handlers/users.go": (
+            'package handlers\n\nimport "database/sql"\n\nvar db *sql.DB\n\n'
+            'func GetUser(c *gin.Context) {\n\tid := c.Param("id")\n\tdb.Query("SELECT * FROM users WHERE id = " + id)\n}\n'
+        ),
+    })
+    built = build_project_map(tmp_path)
+    edges = _arch(built)
+    assert ("r:GET /v1/users/:id", "f:handlers/users.go") in edges
+    assert ("f:handlers/users.go", "s:sql") in edges
+    assert _node(built, "r:GET /v1/users/:id").meta["params"][0]["name"] == "id"
+
+
+def test_url_matching_rules():
+    from grephunt.project_map.architecture import _match, _split_url
+
+    assert _split_url("*/rest/products/search?q=*") == (None, "*/rest/products/search")
+    assert _split_url("https://api.example.com/v1/x") == ("api.example.com", "/v1/x")
+    assert _split_url("http://localhost:3000/api") == (None, "/api")
+    assert _match("*/api/Products/*", "/api/Products/:id", False) is not None
+    assert _match("*/api/Products/*", "/api/*s/:id", False) < _match("*/api/Products/*", "/api/Products/:id", False)
+    assert _match("*/*", "/:id", False) is None  # no literal segment, no match
+    assert _match("/admin/api/users", "/api/users", False) is None  # literal prefix needs a mounted router
+    assert _match("/admin/api/users", "/api/users", True) is not None
