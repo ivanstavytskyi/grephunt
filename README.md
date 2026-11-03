@@ -1,210 +1,174 @@
-# GrepHunt
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="web/public/brand/grephunt-logo-dark.svg">
+    <img src="web/public/brand/grephunt-logo-light.svg" alt="Grephunt" width="420">
+  </picture>
+</p>
 
-SAST core: one finding record, YAML scanner descriptors, isolated runs, and a console on port 4000.
+<p align="center">
+  <b>One console for 25 security scanners: one finding per real problem, ranked by how exploitable it is, with the noise moved out of the way.</b>
+</p>
 
-## Layout
+<p align="center">
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white">
+  <img alt="React + Vite" src="https://img.shields.io/badge/React%20%2B%20Vite-61DAFB?logo=react&logoColor=black">
+  <img alt="Docker" src="https://img.shields.io/badge/Scanners%20in-Docker-2496ED?logo=docker&logoColor=white">
+  <img alt="SARIF 2.1.0" src="https://img.shields.io/badge/SARIF-2.1.0-555">
+  <img alt="25 scanners" src="https://img.shields.io/badge/scanners-25-B8FB21">
+</p>
 
-`grephunt` is the application. A finding is not a folder of scan results. It is the record every module writes.
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#scanners">Scanners</a> ·
+  <a href="#benchmarks">Benchmarks</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#cli">CLI</a> ·
+  <a href="#configuration">Configuration</a>
+</p>
 
-```
-grephunt/finding_model/     what a finding is: location, severity, two identity keys
-grephunt/scan_pipeline/     raw output to findings: events, excludes, SARIF, correlation
-grephunt/scanner_catalog/   what to run: one YAML per scanner, locks/ for pinned installs
-grephunt/scanner_hooks/     generic.py runs a YAML-only scanner; Semgrep, Trivy, Bearer have their own hooks
-grephunt/execution/         where to run: Docker or a local binary
-grephunt/report_output/     who reads findings: console, JSON, merged SARIF
-grephunt/web_console/       FastAPI: folder path or zip, progress over SSE
-grephunt/database/          SQLite by default, tenant_id on every table
-web/                        React console
-rules/                      project Semgrep rules
-samples/vuln_flask          six planted bugs
-samples/clean_flask         a file the rules must ignore
-tests/golden/               SARIF fixtures that do not need Docker
-```
+---
 
-A new scanner is a YAML file in `scanner_catalog/`. A Python hook is only needed when the YAML fields below cannot describe the tool.
+Running Semgrep, CodeQL, Trivy, Checkov and a secret scanner on the same repository gives you five reports, three formats and the same SQL injection five times. Grephunt runs the scanners for you in isolated containers, reads everything as SARIF, folds duplicates into one finding with every tool listed as a confirmation, and ranks what is left by how likely it is to be exploitable. Findings that are not worth your first look (code the app never loads, informational notes, infrastructure checks, patterns a data-flow engine did not back) move to their own tabs instead of being deleted.
 
-## Adding a scanner
+It reads your code and never runs it. Everything works offline except the optional AI review and registry rulesets.
 
-| Field | Meaning |
+## Features
+
+| | |
 |---|---|
-| `image`, `version` | Pinned image tag. `latest` and `latest-*` are rejected. |
-| `container_binary` | Entrypoint in the image, when it differs from `binary` on a local machine. |
-| `args` | Argument template: `{src}`, `{output}`, `{out_dir}`, `{cache:NAME}`, `{catalog}`. An unknown placeholder is an error. |
-| `output_source` | `file` (the tool writes `{output}`) or `stdout` (GrepHunt saves stdout, whatever the exit code). |
-| `output_format` | `sarif`, or a converter from `scan_pipeline/converters.py`. A converter needs `raw_output_filename`. |
-| `applies_to` | File name globs. The tool is skipped when nothing in the project matches. |
-| `cache_volumes` | Host directories under `data/caches/`. `read_only: true` mounts them read-only for the scan. |
-| `prepare` | A run before the scan that fills a cache, with network if it needs it. A marker records it; `ttl_hours` sets when it runs again. If a refresh fails, the old data is used. |
+| **25 scanners, one run** | Code, secrets, dependencies and infrastructure as code. Pick the tools per scan; each runs in its own container with the project mounted read-only. |
+| **One finding per problem** | Reports from different tools are merged by vulnerability class and place. Repeats in one file fold into one finding with every line listed. Advisories for one package fold into one row. |
+| **Noise tiers, nothing deleted** | Main, Needs review, Not executed, Hygiene, Infra & CI. On Juice Shop the main list drops from 274 to 132 findings without losing a known vulnerability. |
+| **Exploitability score** | Severity, reachability from a route, queries built from variables, tool agreement, CISA KEV and FIRST EPSS for CVEs. Every score shows the reasons behind it. |
+| **Project map** | Files, imports and architecture (frontend → route → handler → database) parsed with tree-sitter before any scanner runs. Findings are drawn on the map; export to Mermaid or Obsidian. |
+| **AI review (optional)** | Gemini or DeepSeek with your own key: explain a finding, triage a whole scan against the full enclosing function, or write a validation walkthrough for your own app. Verdicts re-rank findings and never delete them. |
+| **Scan rules** | Exclude folders per scan: ready-made lists (installed packages, build output, caches), your own names or globs, `!name` to keep a folder, `re:` for regular expressions. |
+| **Benchmarks built in** | `grephunt bench` scores a scan against OWASP Benchmark or a list of known bugs and reports recall, false-positive rate, the effect of a second engine, of AI triage and of the exploitability threshold. |
+| **Reports** | PDF, Markdown and plain text from the console; merged SARIF and JSON from the CLI. |
+| **Container images** | Scan a `docker save` or OCI tar with the scanners that understand images. |
 
-The scan itself should run with `network: false`. Databases and installs belong in `prepare`.
+## How it works
 
-## Console
+```mermaid
+flowchart TD
+    T["Folder, zip, GitHub URL or image tar"] --> M["Project map (tree-sitter)"]
+    M --> R["Scanners in isolated containers"]
+    R --> S["SARIF normalize"]
+    S --> C["Correlate: one finding per problem"]
+    C --> E["Enrich: map context, KEV, EPSS"]
+    E --> K["Tiers and exploitability"]
+    K --> U["Console, reports, CLI"]
+    K -. optional .-> A["AI review"]
+```
+
+1. **Map.** The project is parsed before scanning: file roles, imports, routes, HTTP calls and database access. The map later tells which route reaches a finding and which files the app never loads.
+2. **Scan.** Each selected tool runs in Docker with `cap_drop: ALL`, no new privileges, a read-only mount of the project, and network only when the tool needs it (registry rules, database updates, optional key verification).
+3. **Normalize.** Every result becomes one finding record with a fingerprint and a correlation key. Secret values are redacted before anything is stored.
+4. **Correlate.** Reports are merged by CWE class, file and the place the dangerous data is used. Each merged finding keeps every original report as a confirmation.
+5. **Rank.** Tiers and the exploitability score are computed on read, so they improve on old scans too.
+
+## Scanners
+
+| Group | Tools |
+|---|---|
+| **Code** | Semgrep, CodeQL, Bearer, Snyk Code, DevSkim, Bandit, Gosec, Psalm, Progpilot, Brakeman |
+| **Secrets** | Gitleaks, Betterleaks, TruffleHog, Kingfisher, Secretlint |
+| **Dependencies** | Trivy, Grype, OSV-Scanner, Snyk Open Source, Syft (SBOM) |
+| **Infrastructure** | Checkov, KICS, Hadolint, Kubescape, Zizmor |
+
+Grephunt also ships its own Semgrep taint rules for Java, JavaScript/TypeScript, PHP, Go and Python. A new scanner is a YAML descriptor in `grephunt/scanner_catalog/`; a Python hook is needed only when the tool has to prepare state or prints a non-standard format.
+
+## Benchmarks
+
+Measured with `grephunt bench` against projects whose vulnerabilities are known.
+
+| Project | What is measured | Result |
+|---|---|---|
+| **OWASP Juice Shop 20.3** | Main list after noise tiers | 274 → **132** findings (−52%), **0** of the marked vulnerabilities moved off the main list |
+| **OWASP Juice Shop 20.3** | Recall on coding challenges marked in the source | **14 / 33** (Injection 7/8, XSS 3/3) |
+| **DVWA 2.5** | Recall per module (statically detectable modules) | **8 / 13** |
+| **DVWA 2.5** | Main list after noise tiers | 279 → **201** (−28%); the 14 findings moved to *Needs review* were all false positives on escaped or hashed input |
+| **OWASP Benchmark 1.2** | Semgrep with Grephunt Java rules, before second engines | recall **60%**, false-positive rate 39% |
+
+The misses are mostly what static analysis cannot see: business logic, password reset flows, missing CSRF tokens, DOM XSS inside templates. Closing them is the job of the dynamic stage on the roadmap.
+
+## Quick start
+
+**Requirements:** Python 3.11+, Node.js 20+, Docker Desktop (or a Docker daemon).
 
 ```bash
+git clone https://github.com/ivanstavytskyi/grephunt.git
+cd grephunt
 pip install -r requirements.txt
 cd web && npm install && npm run build && cd ..
 python -m grephunt serve
 ```
 
-Open http://127.0.0.1:4000. For UI development, run the API and Vite separately:
+Open **http://127.0.0.1:4000**, choose a folder, a zip, a GitHub link or an image tar, tick the scanners and start. The first run of each scanner pulls its image.
+
+For UI development run the API and Vite side by side; the dev server on port 5173 proxies `/api` to port 4000:
 
 ```bash
 python -m grephunt serve
 cd web && npm run dev
 ```
 
-The dev UI on http://127.0.0.1:5173 proxies `/api` to port 4000.
-
-Give a folder on this machine, upload a zip, or upload a container image as a `.tar`. Project code and image archives are mounted read-only and are never executed.
-
-## Project map
-
-Before the scanners run, GrepHunt reads the source with tree-sitter (nothing is executed) and builds a map with two views:
-
-- **Architecture**: services from docker-compose, frontend files, routes, backend handlers, ORM, and databases, left to right. Routes come from Express, Flask/FastAPI, Django, Spring, Go (net/http, gin, echo), Laravel/Slim, and PHP pages. Frontend calls (Angular HttpClient, fetch, axios, jQuery, HTML forms) are matched to routes. A database call whose query is built from variables is marked dynamic.
-- **Files**: folders and imports between them (Python, JS/TS, PHP, Go, Java).
-
-Every link carries the file and line it came from. No AI is used to build the map.
-
-In the console, **Project map** on a scan page opens the map: large projects start as an overview grouped by route prefix and folder; **Show its path through the system** keeps one request's path (for example `product.service.ts → GET /rest/products/search → search.ts → Sequelize → SQLite`). Drag, rename, add notes, blocks, and links; edits are saved to `map_overlay.json` and survive a rebuild. **Obsidian** and **Mermaid** download the current view with your edits.
-
-Findings use the map: each one shows the route that reaches it with its request parameters, SQL findings are placed on the database call, and the code view marks where input enters and where it is used.
-
-```bash
-python -m grephunt map ./project -o reports    # project_map.json, .canvas, .mmd
-```
-
-API: `GET/POST /api/scans/{id}/map`, `GET/PUT /api/scans/{id}/map/overlay`, `GET /api/scans/{id}/map/export?format=canvas|mermaid&view=architecture|files`, `GET /api/scans/{id}/source?path=…&line=…`.
-
-## Correlation
-
-Several tools reporting one problem become one finding:
-
-- paths are normalized across tools (`/src/x`, `./x`, `../../src/x`, `src/x`);
-- CWEs map to a vulnerability class (CWE-89 and 564 are SQL injection, 77/78/88 command injection, …); without a CWE the class comes from the rule and title; infrastructure checks map to a topic (root user, open egress, encryption, …);
-- findings of one class in one file on nearby lines are one finding, with every tool's report kept in `confirmations`;
-- findings without a class are clustered by text (TF-IDF and cosine similarity, limited to close lines);
-- one check at several places in a file is one finding with `lines` (13, 21, 29).
-
-A running scan is correlated when its findings are read, so duplicates do not show while tools finish.
-
-By default one or two strong scanners per category run (Semgrep with Bandit/gosec for their languages, Gitleaks and TruffleHog, Trivy and OSV-Scanner, Checkov and zizmor). The others run when selected.
-
-## Container images
-
-A container image can be scanned from a tar file: `docker save -o app.tar myapp:1.0`, or an OCI image layout packed as tar. Upload the `.tar` in the console instead of a zip, or run:
-
-```bash
-python -m grephunt scan --image app.tar
-```
-
-The tar is not unpacked by GrepHunt. It is checked (`manifest.json`, or `oci-layout` with `index.json`) and mounted read-only into the scanner containers. **Trivy**, **Grype**, **Syft**, **OSV-Scanner**, and **TruffleHog** scan images; code and IaC scanners skip an image target. Default excludes (tests, build, dist) are not applied to images.
-
-Upload limits default to **10 GB** for zip archives, folders, GitHub downloads, and image tar files. Override with `GREPHUNT_MAX_UPLOAD_MB` or `GREPHUNT_MAX_IMAGE_MB`.
-
-A descriptor opts in with `image_args`, a template where `{src}` is the tar and `{image_ref}` is `docker-archive:<tar>` or `oci-archive:<tar>`.
-
 ## CLI
 
-```bash
-python -m grephunt scan samples/vuln_flask --config rules/python-basic.yml -s semgrep
-python -m grephunt scan samples/vuln_flask -s trivy
-python -m grephunt scan samples/vuln_flask -s bearer
-python -m grephunt scan samples/vuln_flask --local
+| Command | What it does |
+|---|---|
+| `grephunt scan <path> -s semgrep -s trivy` | Scan a folder; reports go to `reports/<project>/` (`findings.json`, `scan.json`, `merged.sarif`) |
+| `grephunt scan --image app.tar` | Scan a container image saved with `docker save` |
+| `grephunt serve` | Web console on port 4000 |
+| `grephunt map <path>` | Build the project map without scanning |
+| `grephunt bench <findings> <expected>` | Score a scan against OWASP Benchmark CSV or an `expected.yaml` |
+| `grephunt doctor` | Check Docker and remove stale scanner containers |
+| `grephunt models download` | Fetch the small offline embedding model used to cluster findings by meaning |
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GREPHUNT_PORT` | `4000` | Console port |
+| `GREPHUNT_DATA` | `./data` | Scans, caches, the SQLite database |
+| `GREPHUNT_DATABASE_URL` | SQLite in `GREPHUNT_DATA` | Any SQLAlchemy URL |
+| `GREPHUNT_MAX_UPLOAD_MB` / `GREPHUNT_MAX_IMAGE_MB` | | Upload limits for archives and image tars |
+| `GREPHUNT_AI_SCAN_FINDINGS_MAX` | | How many findings the AI scan report reads |
+
+AI keys are entered in the console and stay in your browser; they are sent only with your own AI requests.
+
+## Repository layout
+
 ```
-
-Without `-s`, the CLI runs every scanner in the catalog. The web console selects Semgrep and Trivy by default; Bearer is opt-in there.
-
-Reports land in `reports/<project>/findings.json`, `scan.json`, and `merged.sarif`.
-
-## Code scanners
-
-| Scanner | Languages | How it runs |
-|---|---|---|
-| Semgrep | many | official image; registry rules need the network |
-| Bearer | Go, Java, JS/TS, PHP, Python, Ruby | official image; pinned rule pack, offline |
-| Bandit | Python | pinned `python` image, Bandit installed from a hash-checked lock file |
-| gosec | Go | official image, offline (`GOPROXY=off`) |
-| DevSkim | many | pinned .NET SDK image, DevSkim CLI installed from NuGet |
-
-gosec does not download Go modules. Packages whose dependencies are missing still get the AST rules; the SSA and taint rules skip them.
-
-DevSkim reports error, warning, and note in SARIF. Its own scale (Critical, Important, Moderate, BestPractice, ManualReview) is in `DevSkimSeverity`, and `severity_map` in `devskim.yaml` maps it.
-
-## Snyk
-
-Snyk Code and Snyk Open Source run through the official Snyk CLI. They are cloud scanners: Snyk Code uploads the project's source to Snyk, and Snyk Open Source sends the dependency list. They are off by default, marked "cloud" in the console, and the CLI runs them only when named (`-s snyk-code`).
-
-Connecting an account:
-
-1. On the New scan page, press **Connect Snyk**. A popup opens.
-2. GrepHunt starts `snyk auth --auth-type=oauth` on this machine (the first time it downloads the pinned Snyk CLI, about 190 MB, and checks its SHA-256 from `scanner_catalog/config/snyk-cli.yaml`). The CLI's own sign-in address on app.snyk.io is loaded into the popup.
-3. Sign in on Snyk's page and allow access. GrepHunt never sees the password.
-4. Snyk sends the browser back to the CLI on `127.0.0.1:8080` (or the next free callback port), and the CLI stores the token in `data/caches/grephunt-snyk-home/`. The button turns into **Disconnect Snyk**.
-
-The browser must run on the same machine as GrepHunt, because the callback goes to 127.0.0.1. Before each scan the CLI on this machine refreshes the token; the scan container receives it in `INTERNAL_OAUTH_TOKEN_STORAGE`. The token in `data/` gives access to the Snyk account: keep `data/` private.
-
-Snyk exit code 3 (no supported files) marks the task as skipped. For an image tar, Snyk Open Source runs `snyk container test`.
-
-## Secret scanners
-
-| Scanner | Output | Notes |
-|---|---|---|
-| Gitleaks | SARIF, `--redact` | last release March 2026 |
-| Betterleaks | SARIF, `--redact` | successor of Gitleaks by its author; same report format |
-| TruffleHog | JSON lines, converted | `--no-verification`; also scans image tars |
-| Kingfisher | SARIF | `--no-validate` |
-| Secretlint | JSON, converted | recommended preset; files hidden by `.gitignore` are scanned too |
-
-None of them tries a found key against the provider's API: checking a client's live credentials is a decision for a person, not a default.
-
-A secret finding says where a credential is, not what it is. For every tool, the SARIF parser masks secret values in the snippet, message, and title of secret findings (first four characters kept), so they are not stored, shown, or sent to an AI provider. The TruffleHog and Secretlint converters never copy the raw value or the file content.
-
-## IaC scanners
-
-| Scanner | Targets | Notes |
-|---|---|---|
-| Checkov | Terraform, CloudFormation, Kubernetes, Docker, and more | SARIF via `--output-file-path`; values stay in the report on disk only through the masked pipeline |
-| KICS | Terraform, Kubernetes, Docker, Helm, Ansible, and more | SARIF; exit code 50 means findings were present |
-| Hadolint | Dockerfiles | SARIF on stdout; skipped when no Dockerfile is present |
-| Kubescape | Kubernetes YAML and Helm | CLI downloaded once from GitHub releases into `data/caches/grephunt-kubescape/`; `--keep-local` |
-| zizmor | GitHub Actions workflows | `--offline` and SARIF on stdout; skipped without `.github/workflows` |
-
-## Dependency scanners
-
-| Scanner | Database | Network during the scan |
-|---|---|---|
-| Trivy | Trivy DB, refreshed before each scan | no |
-| Grype | Grype DB, `grype db update` at most once a day | no |
-| OSV-Scanner | OSV archives per ecosystem, downloaded by the scan | yes, only the archive download; no package list is sent |
-| Syft | none | no; writes the project SBOM as `syft.cdx.json` and reports no findings |
-
-Grype, OSV-Scanner, and Trivy findings for the same package, version, and CVE merge into one finding with all three tools listed.
-
-`ok_exit_codes` in a descriptor fails the task on any other exit code, even when the tool wrote a report. OSV-Scanner writes an empty report when it cannot load a database, so without this a broken scan would look clean.
-
-## Bandit
-
-Bandit has no versioned image. `bandit.yaml` uses a pinned `python` image, and its `prepare` step installs Bandit from `scanner_catalog/locks/bandit.txt` with `--require-hashes` into `data/caches/grephunt-bandit/<version>/`. Every later scan reuses that install without the network. To update Bandit, regenerate the lock file (the command is at its top) and change `version`, `container_binary`, and `PYTHONPATH` in `bandit.yaml`.
-
-## Bearer
-
-Bearer CLI adds data-flow rules for Go, Java, JavaScript/TypeScript, PHP, Python, and Ruby. Projects without these languages are skipped.
-
-- The rule pack is pinned in `bearer.yaml` (`rules_version`). Before the first scan GrepHunt downloads it from the `Bearer/bearer-rules` releases on GitHub into `data/caches/grephunt-bearer-rules/<version>/`. Later scans reuse it.
-- The scan runs with `--network none`. The rule pack is mounted read-only, and Bearer does not look up the latest rules on GitHub.
-- Bearer SARIF has no CWE, severity, or code snippet, so Bearer writes its JSON report and the hook converts it to `bearer.sarif`.
-- To update Bearer, change `image`, `version`, and `rules_version` together and run `pytest -m integration`.
-- The image is published for amd64 only. On Apple Silicon Docker runs it under emulation, which is slower.
-- Bearer CLI is licensed under the Elastic License 2.0.
-
-## Tests
+grephunt/
+  scanner_catalog/   one YAML descriptor per scanner, Grephunt's own Semgrep rules
+  scanner_hooks/     tool-specific behaviour (rulesets, databases, key verification)
+  execution/         Docker or local binaries, caches
+  scan_pipeline/     SARIF parsing, converters, excludes, the scan view
+  finding_model/     the finding record, correlation, tiers, exploitability
+  project_map/       tree-sitter parsers, imports, architecture, unreferenced files
+  intel/             CISA KEV and FIRST EPSS feeds
+  bench/             OWASP Benchmark and known-bug scoring
+  web_console/       FastAPI app, scans, AI review
+web/                 React console (Vite, Tailwind, React Flow)
+samples/             small projects with planted bugs and clean twins
+tests/               unit tests and SARIF fixtures that need no Docker
+```
 
 ```bash
 pip install pytest httpx
-pytest -m "not integration"
-pytest -m integration
+pytest -m "not integration"   # no Docker needed
+pytest -m integration         # pulls scanner images, needs Docker
 ```
 
-Integration tests pull the images from `scanner_catalog/*.yaml` and need a running Docker daemon.
+## Roadmap
+
+- External reconnaissance of a live target: subdomains, URLs from archives, stack, exposed panels.
+- A sandbox where an agent confirms a finding against your own running app and records a proof-of-concept, with a hard scope limit that is set by a person, not by the model.
+- Baseline mode for CI: show only what is new compared with the previous scan.
+
+## Contributing
+
+Issues and pull requests are welcome. Keep changes small, add a test next to the code you touch, and run `pytest -m "not integration"` before opening a pull request. A new scanner needs a descriptor, a sample project it finds something in, and a fixture test.
