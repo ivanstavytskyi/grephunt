@@ -8,6 +8,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from grephunt.finding_model.record import Category, Module
 
 
+class ParameterSpec(BaseModel):
+    name: str
+    type: Literal["multi", "string_list", "string"]
+    label: str = ""
+    description: str = ""
+    choices: list[str] = Field(default_factory=list)
+    default: list[str] | str | None = None
+    widget: str | None = None
+
+
 class CacheVolume(BaseModel):
     name: str
     path: str
@@ -96,6 +106,8 @@ class ToolDescriptor(BaseModel):
     environment: dict[str, str] = Field(default_factory=dict)
     cap_drop: list[str] = Field(default_factory=lambda: ["ALL"])
     no_new_privileges: bool = True
+    parameters: list[ParameterSpec] = Field(default_factory=list)
+    """Per-run options the console collects and validates before launch."""
 
     @field_validator("image")
     @classmethod

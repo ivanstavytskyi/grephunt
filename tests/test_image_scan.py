@@ -101,8 +101,8 @@ def test_console_accepts_an_image_tar_and_rejects_a_plain_tar(tmp_path: Path, mo
     scan_service.reset_session_factory()
     created = {}
 
-    def fake_create(target, label, names, configs, use_docker, target_kind="source", image_format="docker"):
-        created.update(target=target, label=label, kind=target_kind, image_format=image_format, names=names)
+    def fake_create(target, label, names, use_docker, params=None, target_kind="source", image_format="docker"):
+        created.update(target=target, label=label, kind=target_kind, image_format=image_format, names=names, params=params)
         return "abc"
 
     monkeypatch.setattr(console, "create_scan", fake_create)

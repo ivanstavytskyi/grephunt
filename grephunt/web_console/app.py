@@ -284,8 +284,9 @@ async def events_ws(websocket: WebSocket, scan_id: str) -> None:
 async def start(
     path: str | None = Form(default=None),
     scanners: str = Form(default="semgrep,trivy"),
-    configs: str = Form(default="p/default"),
-    trivy_scanners: str = Form(default="vuln,secret,misconfig"),
+    params: str = Form(default=""),
+    configs: str = Form(default=""),
+    trivy_scanners: str = Form(default=""),
     use_docker: str = Form(default="true"),
     archive: UploadFile | None = File(default=None),
     files: list[UploadFile] | None = File(default=None),
@@ -294,10 +295,24 @@ async def start(
     github_url: str | None = Form(default=None),
 ) -> dict:
     names = [item.strip().lower() for item in scanners.split(",") if item.strip()]
-    config_list = [item.strip() for item in configs.split(",") if item.strip()]
-    trivy_list = [item.strip().lower() for item in trivy_scanners.split(",") if item.strip()]
     if not names:
         raise HTTPException(status_code=400, detail="select at least one scanner")
+
+    raw_params: dict = {}
+    if params and params.strip():
+        try:
+            parsed = json.loads(params)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="params must be valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=400, detail="params must be a JSON object")
+        raw_params = parsed
+    config_list = [item.strip() for item in configs.split(",") if item.strip()]
+    trivy_list = [item.strip().lower() for item in trivy_scanners.split(",") if item.strip()]
+    if config_list and "semgrep" in names:
+        raw_params.setdefault("semgrep", {})["configs"] = config_list
+    if trivy_list and "trivy" in names:
+        raw_params.setdefault("trivy", {})["scanners"] = trivy_list
 
     target_kind = "source"
     image_format = "docker"
@@ -373,11 +388,10 @@ async def start(
             target,
             label,
             names,
-            config_list or ["p/default"],
             use_docker.lower() not in {"0", "false", "no"},
+            params=raw_params,
             target_kind=target_kind,
             image_format=image_format,
-            trivy_scanners=trivy_list,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

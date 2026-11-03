@@ -9,7 +9,8 @@ import { PanelBoundary } from "@/components/panel-boundary";
 import { ScanMap } from "@/components/scan-map";
 import { Snippet } from "@/components/snippet";
 import { Badge } from "@/components/ui/badge";
-import { fetchFindings, fetchLog, fetchScan, watchScan, type LiveChannel } from "@/lib/api";
+import { ScanRunParams } from "@/components/scan-run-params";
+import { fetchFindings, fetchLog, fetchScan, fetchTools, watchScan, type LiveChannel } from "@/lib/api";
 import { elapsedSeconds, formatDuration, locationLabel } from "@/lib/utils";
 
 const SEVERITIES: Array<Severity | "all"> = ["all", "critical", "high", "medium", "low", "info"];
@@ -31,6 +32,7 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
     queryFn: () => fetchScan(scanId),
     refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
   });
+  const toolCatalog = useQuery({ queryKey: ["tools"], queryFn: fetchTools });
   const status = scan.data?.status;
   const findings = useQuery({
     queryKey: ["findings", scanId],
@@ -154,6 +156,8 @@ export const ScanDetailPage = memo(function ScanDetailPage({ scanId }: { scanId:
       {scan.data?.tasks && scan.data.tasks.length > 0 && (
         <ScanLiveTasks tasks={scan.data.tasks} running={status === "running"} />
       )}
+
+      <ScanRunParams runParams={scan.data?.run_params} tools={toolCatalog.data ?? []} />
 
       <section className="mt-6">
         {status === "running" && (

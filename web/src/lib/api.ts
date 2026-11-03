@@ -39,8 +39,7 @@ export async function startScan(input: {
   folder?: File[] | null;
   githubUrl?: string;
   scanners: string[];
-  configs: string;
-  trivyScanners?: string;
+  params: Record<string, Record<string, unknown>>;
   useDocker: boolean;
 }): Promise<ScanSummary> {
   const body = new FormData();
@@ -58,8 +57,7 @@ export async function startScan(input: {
     if (input.archive) body.set("archive", input.archive);
   }
   body.set("scanners", input.scanners.join(","));
-  body.set("configs", input.configs);
-  if (input.trivyScanners) body.set("trivy_scanners", input.trivyScanners);
+  body.set("params", JSON.stringify(input.params));
   body.set("use_docker", input.useDocker ? "true" : "false");
   const response = await fetch("/api/scans", { method: "POST", body });
   if (!response.ok) throw new Error(await readError(response));

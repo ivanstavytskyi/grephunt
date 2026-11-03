@@ -1,18 +1,23 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@/lib/nav";
-import { Archive, Container, FolderOpen, Settings } from "lucide-react";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { Archive, Container, FolderOpen } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SemgrepRulesSettings } from "@/components/semgrep-rules-settings";
 import { SnykConnect } from "@/components/snyk-connect";
-import { TrivyScannerSettings, type TrivyScannerMode } from "@/components/trivy-scanner-settings";
+import { SelectedScannerParams } from "@/components/selected-scanner-params";
 import type { ScannerGroup, ToolInfo } from "@/api/types";
 import { fetchTools, startScan, type SnykStatus } from "@/lib/api";
+import {
+  buildInitialParams,
+  paramsForScanners,
+  summarizeToolParams,
+  type ToolParamsState,
+} from "@/lib/scanner-params";
 
 const SCANNER_GROUPS: { id: ScannerGroup; label: string }[] = [
   { id: "code", label: "Application code" },
@@ -20,8 +25,6 @@ const SCANNER_GROUPS: { id: ScannerGroup; label: string }[] = [
   { id: "dependency", label: "Dependencies" },
   { id: "iac", label: "Infrastructure" },
 ];
-
-const CONFIGURABLE_SCANNERS = new Set(["semgrep", "trivy", "snyk-code", "snyk-open-source"]);
 
 const schema = z.object({
   github: z.string(),
@@ -42,9 +45,8 @@ function isImageTarName(name: string): boolean {
 export function NewScanPage() {
   const tools = useQuery({ queryKey: ["tools"], queryFn: fetchTools });
   const [selected, setSelected] = useState<string[]>(["semgrep", "trivy"]);
-  const [semgrepConfigs, setSemgrepConfigs] = useState("https://semgrep.dev/c/p/default");
-  const [trivyScanners, setTrivyScanners] = useState<TrivyScannerMode[]>(["vuln", "secret", "misconfig"]);
-  const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
+  const [toolParams, setToolParams] = useState<ToolParamsState>({});
+  const [expandedTool, setExpandedTool] = useState<string | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [folder, setFolder] = useState<File[] | null>(null);
@@ -60,6 +62,19 @@ export function NewScanPage() {
     resolver: zodResolver(schema),
     defaultValues: { github: "" },
   });
+
+  useEffect(() => {
+    if (!tools.data?.length) return;
+    setToolParams((current) => {
+      const next = { ...current };
+      for (const tool of tools.data) {
+        if (tool.parameters?.length && !next[tool.name]) {
+          next[tool.name] = buildInitialParams([tool])[tool.name];
+        }
+      }
+      return next;
+    });
+  }, [tools.data]);
 
   const imageTools = (tools.data ?? []).filter((tool) => tool.scans_images).map((tool) => tool.name);
   const defaultImageTools = (tools.data ?? [])
@@ -95,16 +110,17 @@ export function NewScanPage() {
   };
 
   const mutation = useMutation({
-    mutationFn: (values: FormValues) =>
-      startScan({
+    mutationFn: (values: FormValues) => {
+      const scannersToRun = runnable(selected);
+      return startScan({
         archive: folder ? null : imageFile ?? zipFile,
         folder,
         githubUrl: values.github,
-        scanners: runnable(selected),
-        configs: semgrepConfigs,
-        trivyScanners: trivyScanners.join(","),
+        scanners: scannersToRun,
+        params: paramsForScanners(scannersToRun, tools.data ?? [], toolParams),
         useDocker: true,
-      }),
+      });
+    },
     onSuccess: async (scan) => {
       toast.success(`Scan of ${scan.target_label} started`);
       await queryClient.invalidateQueries({ queryKey: ["scans"] });
@@ -136,10 +152,6 @@ export function NewScanPage() {
                 ? "Select at least one scanner that supports container images (for example Trivy or Grype)."
                 : "Select at least one scanner",
             );
-            return;
-          }
-          if (scannersToRun.includes("semgrep") && !semgrepConfigs.trim()) {
-            toast.error("Add at least one Semgrep ruleset (gear on Semgrep).");
             return;
           }
           mutation.mutate(values);
@@ -276,12 +288,16 @@ export function NewScanPage() {
           onSelectedChange={setSelected}
           imageMode={imageMode}
           snykConnected={snykConnected}
-          settingsOpen={settingsOpen}
-          onSettingsOpenChange={setSettingsOpen}
-          semgrepConfigs={semgrepConfigs}
-          onSemgrepConfigsChange={setSemgrepConfigs}
-          trivyScanners={trivyScanners}
-          onTrivyScannersChange={setTrivyScanners}
+          toolParams={toolParams}
+        />
+
+        <SelectedScannerParams
+          tools={tools.data ?? []}
+          selected={runnable(selected)}
+          params={toolParams}
+          onParamsChange={(tool, values) => setToolParams((current) => ({ ...current, [tool]: values }))}
+          expanded={expandedTool}
+          onExpandedChange={setExpandedTool}
         />
 
         <Button type="submit" disabled={mutation.isPending}>
@@ -344,24 +360,14 @@ function ScannerPicker({
   onSelectedChange,
   imageMode,
   snykConnected,
-  settingsOpen,
-  onSettingsOpenChange,
-  semgrepConfigs,
-  onSemgrepConfigsChange,
-  trivyScanners,
-  onTrivyScannersChange,
+  toolParams,
 }: {
   tools: ToolInfo[];
   selected: string[];
   onSelectedChange: (names: string[]) => void;
   imageMode: boolean;
   snykConnected: boolean;
-  settingsOpen: string | null;
-  onSettingsOpenChange: (name: string | null) => void;
-  semgrepConfigs: string;
-  onSemgrepConfigsChange: (value: string) => void;
-  trivyScanners: TrivyScannerMode[];
-  onTrivyScannersChange: (value: TrivyScannerMode[]) => void;
+  toolParams: ToolParamsState;
 }) {
   const byGroup = SCANNER_GROUPS.map((group) => ({
     ...group,
@@ -372,7 +378,7 @@ function ScannerPicker({
     <fieldset>
       <legend className="mb-2 text-sm">Scanners</legend>
       <p className="mb-3 text-xs leading-5 text-ink-muted">
-        Select scanners to run. Use the gear icon to configure rules or scan modes where available.
+        Select scanners to run. Adjust options in the block below when a scanner is selected.
       </p>
       {imageMode && (
         <p className="mb-3 text-xs leading-5 text-ink-muted">
@@ -388,93 +394,53 @@ function ScannerPicker({
                 const needsLogin = tool.cloud && !snykConnected;
                 const blocked = (imageMode && !tool.scans_images) || needsLogin;
                 const on = selected.includes(tool.name) && !blocked;
-                const configurable = CONFIGURABLE_SCANNERS.has(tool.name);
-                const panelOpen = settingsOpen === tool.name;
+                const paramSummary =
+                  on && tool.parameters?.length ? summarizeToolParams(tool, toolParams[tool.name]) : "";
                 return (
                   <li key={tool.name}>
-                    <div
-                      className={`overflow-hidden rounded-md border ${on ? "border-signal/60 bg-signal/10" : "border-ink-line"}`}
+                    <button
+                      type="button"
+                      disabled={blocked}
+                      title={
+                        needsLogin
+                          ? "Connect Snyk first"
+                          : blocked
+                            ? `${tool.name} does not scan container images`
+                            : tool.cloud
+                              ? "Runs in the vendor's cloud: project data leaves this machine"
+                              : undefined
+                      }
+                      onClick={() =>
+                        onSelectedChange(
+                          selected.includes(tool.name)
+                            ? selected.filter((item) => item !== tool.name)
+                            : [...selected, tool.name],
+                        )
+                      }
+                      aria-pressed={on}
+                      aria-label={`${on ? "Deselect" : "Select"} scanner ${tool.name}`}
+                      className={`w-full rounded-md border px-3 py-2.5 text-left leading-snug disabled:cursor-not-allowed disabled:opacity-40 ${
+                        on ? "border-signal/60 bg-signal/10" : "border-ink-line hover:border-ink-muted/60"
+                      }`}
                     >
-                      <div
-                        className={
-                          configurable
-                            ? "grid grid-cols-[minmax(0,1fr)_2.5rem] items-stretch"
-                            : "grid grid-cols-1"
-                        }
-                      >
-                        <button
-                          type="button"
-                          disabled={blocked}
-                          title={
-                            needsLogin
-                              ? "Connect Snyk first"
-                              : blocked
-                                ? `${tool.name} does not scan container images`
-                                : tool.cloud
-                                  ? "Runs in the vendor's cloud: project data leaves this machine"
-                                  : undefined
-                          }
-                          onClick={() =>
-                            onSelectedChange(
-                              selected.includes(tool.name)
-                                ? selected.filter((item) => item !== tool.name)
-                                : [...selected, tool.name],
-                            )
-                          }
-                          aria-pressed={on}
-                          aria-label={`${on ? "Deselect" : "Select"} scanner ${tool.name}`}
-                          className="flex min-w-0 flex-col px-3 py-2.5 text-left leading-snug disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <span className="font-mono text-sm">{tool.name}</span>
-                          <span className="mt-0.5 font-mono text-[10px] leading-4 text-ink-muted">
-                            v{tool.version}
-                            {tool.scans_images ? " · image" : ""}
-                            {tool.cloud ? " · cloud" : ""}
-                          </span>
-                          {tool.languages && (
-                            <span className="mt-1.5 text-xs text-ink-muted">
-                              <span className="text-ink-text/80">Languages:</span> {tool.languages}
-                            </span>
-                          )}
-                          {tool.purpose && (
-                            <span className="mt-0.5 text-xs leading-5 text-ink-muted">{tool.purpose}</span>
-                          )}
-                        </button>
-                        {configurable && (
-                          <div className="flex items-center justify-center py-2.5 pr-2">
-                            <button
-                              type="button"
-                              disabled={blocked}
-                              aria-expanded={panelOpen}
-                              aria-label={`${tool.name} settings`}
-                              title={`${tool.name} settings`}
-                              onClick={() => onSettingsOpenChange(panelOpen ? null : tool.name)}
-                              className={`inline-flex size-8 items-center justify-center text-ink-muted transition-none hover:text-ink-text disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50 ${
-                                panelOpen ? "text-signal" : ""
-                              }`}
-                            >
-                              <Settings className="size-4" aria-hidden="true" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      {panelOpen && configurable && (
-                        <div className="border-t border-ink-line bg-ink-panel/80 p-3">
-                          {tool.name === "semgrep" && (
-                            <SemgrepRulesSettings value={semgrepConfigs} onChange={onSemgrepConfigsChange} />
-                          )}
-                          {tool.name === "trivy" && (
-                            <TrivyScannerSettings value={trivyScanners} onChange={onTrivyScannersChange} />
-                          )}
-                          {(tool.name === "snyk-code" || tool.name === "snyk-open-source") && (
-                            <p className="text-xs leading-5 text-ink-muted">
-                              Sign in with Snyk using <span className="text-ink-text">Connect Snyk</span> above. The
-                              scan runs in Snyk&apos;s cloud with your account permissions.
-                            </p>
-                          )}
-                        </div>
+                      <span className="font-mono text-sm">{tool.name}</span>
+                      <span className="mt-0.5 font-mono text-[10px] leading-4 text-ink-muted">
+                        v{tool.version}
+                        {tool.scans_images ? " · image" : ""}
+                        {tool.cloud ? " · cloud" : ""}
+                      </span>
+                      {tool.languages && (
+                        <span className="mt-1.5 block text-xs text-ink-muted">
+                          <span className="text-ink-text/80">Languages:</span> {tool.languages}
+                        </span>
                       )}
-                    </div>
+                      {tool.purpose && (
+                        <span className="mt-0.5 block text-xs leading-5 text-ink-muted">{tool.purpose}</span>
+                      )}
+                      {paramSummary && (
+                        <span className="mt-1.5 block truncate text-xs text-signal/90">Run: {paramSummary}</span>
+                      )}
+                    </button>
                   </li>
                 );
               })}

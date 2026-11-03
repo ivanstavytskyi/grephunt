@@ -7,7 +7,13 @@ from pathlib import Path
 from grephunt.finding_model.record import ScanResult
 
 
-def write_findings_json(result: ScanResult, directory: Path) -> Path:
+def write_findings_json(
+    result: ScanResult,
+    directory: Path,
+    *,
+    params: dict | None = None,
+    scanners: list[str] | None = None,
+) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "findings.json"
     payload = [finding.model_dump(mode="json") for finding in result.findings]
@@ -19,6 +25,8 @@ def write_findings_json(result: ScanResult, directory: Path) -> Path:
         "excluded": result.excluded,
         "findings": len(result.findings),
         "merged_sarif": str(result.merged_sarif) if result.merged_sarif else None,
+        "scanners": scanners,
+        "params": params,
         "runs": [
             {
                 "tool": run.tool,
