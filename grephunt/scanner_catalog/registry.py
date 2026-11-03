@@ -7,11 +7,13 @@ import yaml
 
 from grephunt.scanner_catalog.launch import ScannerTool
 from grephunt.scanner_catalog.descriptor import ToolDescriptor
+from grephunt.scanner_hooks.bearer import BearerHook
 from grephunt.scanner_hooks.semgrep import SemgrepHook
 from grephunt.scanner_hooks.trivy import TrivyHook
 
 _DIR = Path(__file__).resolve().parent
 _HOOKS = {
+    "bearer": BearerHook,
     "semgrep": SemgrepHook,
     "trivy": TrivyHook,
 }

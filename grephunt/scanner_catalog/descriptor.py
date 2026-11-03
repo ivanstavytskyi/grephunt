@@ -9,6 +9,8 @@ from grephunt.finding_model.record import Module
 class CacheVolume(BaseModel):
     name: str
     path: str
+    read_only: bool = False
+    """The scan only reads it. A prepare step on the host fills it."""
 
 
 class ToolDescriptor(BaseModel):
@@ -25,6 +27,10 @@ class ToolDescriptor(BaseModel):
     memory: str = "1g"
     pids_limit: int = 512
     output_filename: str
+    raw_output_filename: str | None = None
+    """The file the tool writes when it cannot write SARIF itself. The hook converts it to output_filename."""
+    rules_version: str | None = None
+    """Pinned version of a rule pack that the hook downloads before the scan."""
     target_mount: str = "/src"
     output_mount: str = "/out"
     cache_volumes: list[CacheVolume] = Field(default_factory=list)
@@ -35,7 +41,8 @@ class ToolDescriptor(BaseModel):
     @field_validator("image")
     @classmethod
     def image_is_pinned(cls, value: str) -> str:
-        if ":" not in value or value.endswith(":latest"):
+        tag = value.rsplit(":", 1)[-1] if ":" in value else ""
+        if not tag or tag.startswith("latest"):
             raise ValueError(f"image {value} must be pinned to a version tag, not latest")
         return value
 
@@ -44,4 +51,11 @@ class ToolDescriptor(BaseModel):
     def version_is_pinned(cls, value: str) -> str:
         if not value or value.lower() == "latest":
             raise ValueError("version cannot be latest")
+        return value
+
+    @field_validator("rules_version")
+    @classmethod
+    def rules_version_is_pinned(cls, value: str | None) -> str | None:
+        if value is not None and (not value or value.lower().startswith("latest")):
+            raise ValueError("rules_version must be a release tag, not latest")
         return value

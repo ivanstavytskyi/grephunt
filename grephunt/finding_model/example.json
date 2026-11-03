@@ -7,6 +7,7 @@
   "rule_id": "python.lang.security.audit.eval-detected",
   "title": "Use of eval",
   "message": "eval() on user input can execute arbitrary code.",
+  "description": null,
   "severity": "high",
   "severity_original": "ERROR",
   "cwe": ["CWE-95"],

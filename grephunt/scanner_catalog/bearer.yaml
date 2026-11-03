@@ -1,0 +1,35 @@
+name: bearer
+module: sast
+binary: bearer
+image: bearer/bearer:v2.1.2
+version: "2.1.2"
+timeout_sec: 1800
+# The scan has no network. Bearer only talks to its own worker over loopback,
+# and loopback works with --network none.
+network: false
+# The rule pack is downloaded on the host before the scan, then mounted read-only.
+prepare_network: true
+rules_version: v0.48.4
+# The image user is runuser. 65534 also works: HOME is /tmp, and the binary is world-readable.
+user: "65534"
+cpus: "2"
+memory: 4g
+pids_limit: 512
+# Bearer SARIF has no CWE, severity, or snippet. The hook converts the JSON report instead.
+raw_output_filename: bearer.json
+output_filename: bearer.sarif
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  # A mounted repository belongs to another user. Git refuses it unless the directory is marked safe.
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: "*"
+cache_volumes:
+  - name: grephunt-bearer-rules
+    path: /rules
+    read_only: true
+cap_drop:
+  - ALL
+no_new_privileges: true

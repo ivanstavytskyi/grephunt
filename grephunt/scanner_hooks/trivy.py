@@ -27,6 +27,7 @@ def _package_info(message: str) -> dict[str, str]:
 
 class TrivyHook:
     name = "trivy"
+    prepare_label = "warming CVE database (cached when possible)"
 
     def is_applicable(self, project: Path) -> bool:
         return True

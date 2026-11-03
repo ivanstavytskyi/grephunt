@@ -69,3 +69,27 @@ def test_trivy_reports_requirements_and_stays_quiet_without_manifest(tmp_path: P
     )
     assert quiet.runs[0].status.value == "success", quiet.runs[0].error
     assert [item for item in quiet.findings if item.category.value == "dependency"] == []
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_bearer_runs_offline_with_the_pinned_rule_pack(tmp_path: Path):
+    tool = load_tools()["bearer"]
+    options = ScanOptions(excludes=[], use_docker=True)
+    hit = asyncio.run(
+        run_scan(ROOT / "samples" / "vuln_flask", tmp_path / "vuln", [tool], options)
+    )
+    assert hit.runs[0].status.value == "success", hit.runs[0].error
+    pickle = [item for item in hit.findings if item.rule_id == "python_lang_avoid_pickle"]
+    assert pickle and pickle[0].cwe == ["CWE-502"]
+    assert pickle[0].location.path == "app.py"
+
+    clean = asyncio.run(
+        run_scan(ROOT / "samples" / "clean_flask", tmp_path / "clean", [tool], options)
+    )
+    assert clean.runs[0].status.value == "success", clean.runs[0].error
+    assert clean.findings == []
+
+    skipped = asyncio.run(
+        run_scan(ROOT / "samples" / "no_manifest", tmp_path / "none", [tool], options)
+    )
+    assert skipped.runs[0].status.value == "skipped"
