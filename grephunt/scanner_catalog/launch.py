@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from grephunt.finding_model.record import Module, TaskRun, TaskStatus
+from grephunt.scan_pipeline.image_archive import IMAGE_MOUNT
 from grephunt.scan_pipeline.events import EventHandler, EventType, ScanEvent, emit, scan_event_scope
 from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scan_pipeline.pipeline import emit_tool_findings
@@ -84,7 +85,12 @@ class ScannerTool:
         import asyncio
 
         emit(on_event, ScanEvent(type=EventType.TASK_QUEUED, tool=self.name, message="queued, waiting to start"))
-        if not self.is_applicable(project):
+        image_scan = options.target_kind == "image"
+        if image_scan and not getattr(self.hook, "supports_image", lambda: False)():
+            message = "does not scan container images"
+            emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message=message, data={"status": "skipped"}))
+            return TaskRun(tool=self.name, status=TaskStatus.SKIPPED, error=message, image=self.descriptor.image)
+        if not image_scan and not self.is_applicable(project):
             emit(on_event, ScanEvent(type=EventType.TASK_FINISHED, tool=self.name, message="not applicable", data={"status": "skipped"}))
             return TaskRun(tool=self.name, status=TaskStatus.SKIPPED, error="not applicable", image=self.descriptor.image)
 
@@ -152,10 +158,10 @@ class ScannerTool:
         network = self.hook.wants_network(self.descriptor, options)
 
         if options.use_docker:
-            src = self.descriptor.target_mount
+            src = IMAGE_MOUNT if image_scan else self.descriptor.target_mount
             output = f"{self.descriptor.output_mount}/{self.descriptor.output_filename}"
             binds: list[tuple[str, str, bool]] = [
-                (str(project.resolve()), self.descriptor.target_mount, True),
+                (str(project.resolve()), src, True),
                 (str(out_dir.resolve()), self.descriptor.output_mount, False),
             ]
             for host, container in self.hook.extra_mounts(options, use_docker=True):

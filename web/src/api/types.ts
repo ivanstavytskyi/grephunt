@@ -70,6 +70,7 @@ export type ToolInfo = {
   version: string;
   network: boolean;
   prepare_network: boolean;
+  scans_images: boolean;
 };
 
 export type ScanEvent = {
