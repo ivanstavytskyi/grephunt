@@ -1,6 +1,7 @@
 """Semgrep-specific behavior: local rules, excludes, and network only for registry configs."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from grephunt.finding_model.record import Finding
@@ -10,6 +11,7 @@ from grephunt.scanner_catalog.descriptor import ToolDescriptor
 # Always applied, in addition to the rulesets chosen in the UI.
 BUNDLED_RULES = Path(__file__).resolve().parents[1] / "scanner_catalog" / "rules"
 _BUNDLED_MOUNT = "/rules/grephunt"
+_MOUNT_PREFIX = re.compile(r"^rules\.(?:grephunt|\d+)\.")
 
 
 class SemgrepHook:
@@ -67,4 +69,10 @@ class SemgrepHook:
         return args
 
     def refine_finding(self, finding: Finding, result: dict, rule: dict) -> Finding:
-        return finding
+        # Semgrep prefixes ids of rules loaded from a folder with the folder path:
+        # /rules/grephunt/python.yaml -> rules.grephunt.grephunt.python.web.sql-injection.
+        cleaned = _MOUNT_PREFIX.sub("", finding.rule_id)
+        if cleaned == finding.rule_id:
+            return finding
+        title = _MOUNT_PREFIX.sub("", finding.title) if finding.title.startswith("rules.") else finding.title
+        return finding.model_copy(update={"rule_id": cleaned, "title": title})
