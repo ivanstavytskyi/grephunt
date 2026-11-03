@@ -1,0 +1,64 @@
+name: devskim
+module: sast
+binary: devskim
+# DevSkim has no image. A pinned .NET SDK image installs the DevSkim CLI from
+# NuGet once (NuGet checks the package signature), and scans reuse it offline.
+image: mcr.microsoft.com/dotnet/sdk:8.0.404
+version: "1.0.100"
+container_binary: /opt/devskim/1.0.100/devskim
+timeout_sec: 1200
+network: false
+prepare_network: true
+user: "65534"
+cpus: "2"
+memory: 2g
+pids_limit: 512
+args:
+  - analyze
+  - -I
+  - "{src}"
+  - -O
+  - "{output}"
+  - -f
+  - sarif
+  - -g
+  - "**/.git/**,**/bin/**,**/obj/**,**/node_modules/**,**/vendor/**,**/*.min.js"
+output_filename: devskim.sarif
+# DevSkim writes only error, warning, and note. Its own scale is in DevSkimSeverity.
+severity_property: DevSkimSeverity
+severity_map:
+  Critical: critical
+  Important: high
+  Moderate: medium
+  BestPractice: low
+  ManualReview: info
+target_mount: /src
+output_mount: /out
+environment:
+  HOME: /tmp
+  DOTNET_CLI_HOME: /tmp
+  DOTNET_ROOT: /usr/share/dotnet
+  NUGET_PACKAGES: /tmp/nuget
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+cache_volumes:
+  - name: grephunt-devskim
+    path: /opt/devskim
+    read_only: true
+prepare:
+  binary: dotnet
+  cache: grephunt-devskim
+  docker_only: true
+  network: true
+  args:
+    - tool
+    - install
+    - Microsoft.CST.DevSkim.CLI
+    - --version
+    - "1.0.100"
+    - --tool-path
+    - "{cache:grephunt-devskim}/1.0.100"
+cap_drop:
+  - ALL
+no_new_privileges: true

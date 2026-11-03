@@ -117,6 +117,22 @@ def _relative_path(uri: str, project_root: Path | None) -> str:
     return path.lstrip("/")
 
 
+def _relationship_cwes(rule: dict) -> set[str]:
+    """CWE ids given as rule relationships to a CWE taxonomy (gosec, CodeQL), not as tags."""
+    found: set[str] = set()
+    for relation in rule.get("relationships") or []:
+        target = relation.get("target") if isinstance(relation, dict) else None
+        if not isinstance(target, dict):
+            continue
+        component = target.get("toolComponent") or {}
+        if str(component.get("name") or "").upper() != "CWE":
+            continue
+        value = str(target.get("id") or "").upper().removeprefix("CWE-")
+        if value.isdigit():
+            found.add(f"CWE-{int(value)}")
+    return found
+
+
 def _tool_version(run: dict) -> str | None:
     driver = run.get("tool", {}).get("driver", {})
     version = driver.get("semanticVersion") or driver.get("version")
@@ -145,7 +161,7 @@ def parse_sarif(
             location = (result.get("locations") or [{}])[0].get("physicalLocation", {})
             region = location.get("region", {})
             message = result.get("message", {}).get("text", "")
-            cwe = sorted({match for tag in tags for match in _CWE_RE.findall(tag)})
+            cwe = sorted({match for tag in tags for match in _CWE_RE.findall(str(tag))} | _relationship_cwes(rule))
             cve = sorted(
                 {
                     match.upper() if match.upper().startswith("CVE") else match

@@ -108,3 +108,24 @@ def test_bandit_installs_from_the_lock_file_and_scans_offline(tmp_path: Path):
     clean = asyncio.run(run_scan(ROOT / "samples" / "clean_flask", tmp_path / "clean", [tool], options))
     assert clean.runs[0].status.value == "success", clean.runs[0].error
     assert clean.findings == []
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_gosec_scans_go_offline(tmp_path: Path):
+    tool = load_tools()["gosec"]
+    options = ScanOptions(excludes=[], use_docker=True)
+    hit = asyncio.run(run_scan(ROOT / "samples" / "vuln_go", tmp_path / "vuln", [tool], options))
+    assert hit.runs[0].status.value == "success", hit.runs[0].error
+    assert {"G402", "G401", "G501"} <= {item.rule_id for item in hit.findings}
+    clean = asyncio.run(run_scan(ROOT / "samples" / "clean_go", tmp_path / "clean", [tool], options))
+    assert clean.runs[0].status.value == "success", clean.runs[0].error
+    assert clean.findings == []
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_devskim_installs_from_nuget_and_scans_offline(tmp_path: Path):
+    tool = load_tools()["devskim"]
+    options = ScanOptions(excludes=[], use_docker=True)
+    hit = asyncio.run(run_scan(ROOT / "samples" / "vuln_go", tmp_path / "vuln", [tool], options))
+    assert hit.runs[0].status.value == "success", hit.runs[0].error
+    assert any(item.location.path == "main.go" for item in hit.findings)
