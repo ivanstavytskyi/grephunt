@@ -1,4 +1,4 @@
-import type { Finding, ScanEvent, ScanSummary, ToolInfo } from "@/api/types";
+import type { Finding, MapOverlay, ProjectMap, ScanEvent, ScanSummary, SourceView, ToolInfo } from "@/api/types";
 
 async function readError(response: Response) {
   try {
@@ -29,6 +29,47 @@ export async function fetchScan(id: string): Promise<ScanSummary> {
 
 export async function fetchFindings(id: string): Promise<Finding[]> {
   const response = await fetch(`/api/scans/${id}/findings`);
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function fetchProjectMap(scanId: string): Promise<ProjectMap | null> {
+  const response = await fetch(`/api/scans/${scanId}/map`);
+  if (!response.ok) throw new Error(await readError(response));
+  const body = await response.json();
+  return body && body.files ? (body as ProjectMap) : null;
+}
+
+export async function rebuildProjectMap(scanId: string): Promise<ProjectMap> {
+  const response = await fetch(`/api/scans/${scanId}/map`, { method: "POST" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function fetchMapOverlay(scanId: string): Promise<MapOverlay> {
+  const response = await fetch(`/api/scans/${scanId}/map/overlay`);
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function saveMapOverlay(scanId: string, overlay: MapOverlay): Promise<MapOverlay> {
+  const response = await fetch(`/api/scans/${scanId}/map/overlay`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(overlay),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function fetchSource(
+  scanId: string,
+  input: { path: string; line?: number | null; endLine?: number | null; context: number },
+): Promise<SourceView> {
+  const params = new URLSearchParams({ path: input.path, context: String(input.context) });
+  if (input.line) params.set("line", String(input.line));
+  if (input.endLine) params.set("end_line", String(input.endLine));
+  const response = await fetch(`/api/scans/${scanId}/source?${params.toString()}`);
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }

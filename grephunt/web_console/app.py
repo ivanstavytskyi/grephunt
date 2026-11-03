@@ -17,6 +17,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from grephunt.integrations import snyk as snyk_integration
 from grephunt.web_console.ai_explain import (
@@ -36,9 +37,14 @@ from grephunt.web_console.scans import (
     dismiss_findings,
     get_events,
     get_findings,
+    get_map_overlay,
+    get_project_map,
     get_scan,
+    get_source,
     list_scans,
     list_tools,
+    rebuild_project_map,
+    save_map_overlay,
     session_factory,
 )
 from grephunt.config import DATA_DIR, WEB_DIST, max_image_upload_bytes, max_upload_bytes, upload_limit_label
@@ -234,6 +240,62 @@ def scan(scan_id: str) -> dict:
 @app.get("/api/scans/{scan_id}/findings")
 def findings(scan_id: str) -> list[dict]:
     found = get_findings(scan_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return found
+
+
+@app.get("/api/scans/{scan_id}/map")
+def project_map(scan_id: str) -> dict:
+    found = get_project_map(scan_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return found
+
+
+@app.post("/api/scans/{scan_id}/map")
+async def project_map_rebuild(scan_id: str) -> dict:
+    try:
+        found = await asyncio.to_thread(rebuild_project_map, scan_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return found
+
+
+class MapOverlay(BaseModel):
+    version: int = 1
+    views: dict[str, dict] = {}
+
+
+@app.get("/api/scans/{scan_id}/map/overlay")
+def project_map_overlay(scan_id: str) -> dict:
+    found = get_map_overlay(scan_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return found
+
+
+@app.put("/api/scans/{scan_id}/map/overlay")
+def project_map_overlay_save(scan_id: str, overlay: MapOverlay) -> dict:
+    try:
+        saved = save_map_overlay(scan_id, overlay.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    if saved is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return saved
+
+
+@app.get("/api/scans/{scan_id}/source")
+def scan_source(scan_id: str, path: str, line: int | None = None, end_line: int | None = None, context: int = 12) -> dict:
+    from grephunt.web_console.source_view import SourceUnavailable
+
+    try:
+        found = get_source(scan_id, path, line, end_line, max(0, min(context, 1000)))
+    except SourceUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if found is None:
         raise HTTPException(status_code=404, detail="scan not found")
     return found

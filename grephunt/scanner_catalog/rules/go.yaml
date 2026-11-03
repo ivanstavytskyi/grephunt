@@ -1,0 +1,221 @@
+# GrepHunt bundled Semgrep rules (go). Applied in every scan, offline.
+rules:
+- id: grephunt.go.web.sql-injection
+  mode: taint
+  languages:
+  - go
+  severity: ERROR
+  message: Request data reaches a SQL query string. Use placeholders (db.Query("... WHERE id = $1", id))
+    instead of string concatenation or fmt.Sprintf.
+  metadata:
+    cwe:
+    - CWE-89
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - net/http
+    - gin
+    - echo
+    - database/sql
+  pattern-sources:
+  - pattern: '($REQ : *http.Request).URL.Query()'
+  - pattern: '($REQ : *http.Request).FormValue(...)'
+  - pattern: '($REQ : *http.Request).PostFormValue(...)'
+  - pattern: '($REQ : *http.Request).Header.Get(...)'
+  - pattern: '($REQ : *http.Request).Body'
+  - pattern: mux.Vars(...)
+  - pattern: '($CTX : *gin.Context).Query(...)'
+  - pattern: '($CTX : *gin.Context).DefaultQuery(...)'
+  - pattern: '($CTX : *gin.Context).Param(...)'
+  - pattern: '($CTX : *gin.Context).PostForm(...)'
+  - pattern: '($CTX : *gin.Context).GetHeader(...)'
+  - pattern: '($CTX : echo.Context).QueryParam(...)'
+  - pattern: '($CTX : echo.Context).Param(...)'
+  - pattern: '($CTX : echo.Context).FormValue(...)'
+  pattern-sanitizers:
+  - pattern: strconv.Atoi(...)
+  - pattern: strconv.ParseInt(...)
+  - pattern: strconv.ParseUint(...)
+  - pattern: uuid.Parse(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: $DB.Query($QUERY, ...)
+      - pattern: $DB.QueryRow($QUERY, ...)
+      - pattern: $DB.Exec($QUERY, ...)
+      - pattern: $DB.Prepare($QUERY)
+      - pattern: $DB.QueryContext($CTX, $QUERY, ...)
+      - pattern: $DB.QueryRowContext($CTX, $QUERY, ...)
+      - pattern: $DB.ExecContext($CTX, $QUERY, ...)
+      - pattern: $DB.Raw($QUERY, ...)
+    - focus-metavariable: $QUERY
+- id: grephunt.go.web.command-injection
+  mode: taint
+  languages:
+  - go
+  severity: ERROR
+  message: Request data reaches exec.Command. Do not run it through a shell, and check the value against
+    an allowlist.
+  metadata:
+    cwe:
+    - CWE-78
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - net/http
+    - gin
+    - echo
+  pattern-sources:
+  - pattern: '($REQ : *http.Request).URL.Query()'
+  - pattern: '($REQ : *http.Request).FormValue(...)'
+  - pattern: '($REQ : *http.Request).PostFormValue(...)'
+  - pattern: '($REQ : *http.Request).Header.Get(...)'
+  - pattern: '($REQ : *http.Request).Body'
+  - pattern: mux.Vars(...)
+  - pattern: '($CTX : *gin.Context).Query(...)'
+  - pattern: '($CTX : *gin.Context).DefaultQuery(...)'
+  - pattern: '($CTX : *gin.Context).Param(...)'
+  - pattern: '($CTX : *gin.Context).PostForm(...)'
+  - pattern: '($CTX : *gin.Context).GetHeader(...)'
+  - pattern: '($CTX : echo.Context).QueryParam(...)'
+  - pattern: '($CTX : echo.Context).Param(...)'
+  - pattern: '($CTX : echo.Context).FormValue(...)'
+  pattern-sanitizers:
+  - pattern: strconv.Atoi(...)
+  - pattern: strconv.ParseInt(...)
+  - pattern: strconv.ParseUint(...)
+  - pattern: uuid.Parse(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: exec.Command($CMD, ...)
+      - pattern: exec.CommandContext($CTX, $CMD, ...)
+      - pattern: exec.Command($SHELL, "-c", $CMD)
+    - focus-metavariable: $CMD
+- id: grephunt.go.web.path-traversal
+  mode: taint
+  languages:
+  - go
+  severity: ERROR
+  message: Request data is used as a file path. Clean it with filepath.Clean and check it stays under
+    the base folder, or serve files through http.FileServer.
+  metadata:
+    cwe:
+    - CWE-22
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - net/http
+    - gin
+    - echo
+  pattern-sources:
+  - pattern: '($REQ : *http.Request).URL.Query()'
+  - pattern: '($REQ : *http.Request).FormValue(...)'
+  - pattern: '($REQ : *http.Request).PostFormValue(...)'
+  - pattern: '($REQ : *http.Request).Header.Get(...)'
+  - pattern: '($REQ : *http.Request).Body'
+  - pattern: mux.Vars(...)
+  - pattern: '($CTX : *gin.Context).Query(...)'
+  - pattern: '($CTX : *gin.Context).DefaultQuery(...)'
+  - pattern: '($CTX : *gin.Context).Param(...)'
+  - pattern: '($CTX : *gin.Context).PostForm(...)'
+  - pattern: '($CTX : *gin.Context).GetHeader(...)'
+  - pattern: '($CTX : echo.Context).QueryParam(...)'
+  - pattern: '($CTX : echo.Context).Param(...)'
+  - pattern: '($CTX : echo.Context).FormValue(...)'
+  pattern-sanitizers:
+  - pattern: filepath.Base(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: os.Open($PATH)
+      - pattern: os.OpenFile($PATH, ...)
+      - pattern: os.ReadFile($PATH)
+      - pattern: ioutil.ReadFile($PATH)
+      - pattern: os.Remove($PATH)
+      - pattern: http.ServeFile($W, $R, $PATH)
+      - pattern: '($CTX : *gin.Context).File($PATH)'
+    - focus-metavariable: $PATH
+- id: grephunt.go.web.ssrf
+  mode: taint
+  languages:
+  - go
+  severity: WARNING
+  message: Request data decides which URL the server fetches. Allow only known hosts so the server cannot
+    be used to reach internal services.
+  metadata:
+    cwe:
+    - CWE-918
+    owasp:
+    - A10:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - net/http
+  pattern-sources:
+  - pattern: '($REQ : *http.Request).URL.Query()'
+  - pattern: '($REQ : *http.Request).FormValue(...)'
+  - pattern: '($REQ : *http.Request).PostFormValue(...)'
+  - pattern: '($REQ : *http.Request).Header.Get(...)'
+  - pattern: '($REQ : *http.Request).Body'
+  - pattern: mux.Vars(...)
+  - pattern: '($CTX : *gin.Context).Query(...)'
+  - pattern: '($CTX : *gin.Context).DefaultQuery(...)'
+  - pattern: '($CTX : *gin.Context).Param(...)'
+  - pattern: '($CTX : *gin.Context).PostForm(...)'
+  - pattern: '($CTX : *gin.Context).GetHeader(...)'
+  - pattern: '($CTX : echo.Context).QueryParam(...)'
+  - pattern: '($CTX : echo.Context).Param(...)'
+  - pattern: '($CTX : echo.Context).FormValue(...)'
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: http.Get($URL)
+      - pattern: http.Post($URL, ...)
+      - pattern: http.NewRequest($METHOD, $URL, ...)
+      - pattern: http.NewRequestWithContext($CTX, $METHOD, $URL, ...)
+    - focus-metavariable: $URL
+- id: grephunt.go.web.html-injection
+  mode: taint
+  languages:
+  - go
+  severity: WARNING
+  message: Request data is marked as safe HTML with template.HTML, which turns off html/template escaping
+    (XSS). Pass it as a plain string.
+  metadata:
+    cwe:
+    - CWE-79
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - html/template
+  pattern-sources:
+  - pattern: '($REQ : *http.Request).URL.Query()'
+  - pattern: '($REQ : *http.Request).FormValue(...)'
+  - pattern: '($REQ : *http.Request).PostFormValue(...)'
+  - pattern: '($REQ : *http.Request).Header.Get(...)'
+  - pattern: '($REQ : *http.Request).Body'
+  - pattern: mux.Vars(...)
+  - pattern: '($CTX : *gin.Context).Query(...)'
+  - pattern: '($CTX : *gin.Context).DefaultQuery(...)'
+  - pattern: '($CTX : *gin.Context).Param(...)'
+  - pattern: '($CTX : *gin.Context).PostForm(...)'
+  - pattern: '($CTX : *gin.Context).GetHeader(...)'
+  - pattern: '($CTX : echo.Context).QueryParam(...)'
+  - pattern: '($CTX : echo.Context).Param(...)'
+  - pattern: '($CTX : echo.Context).FormValue(...)'
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: template.HTML($OUT)
+      - pattern: template.JS($OUT)
+      - pattern: fmt.Fprintf($W, $OUT, ...)
+    - focus-metavariable: $OUT

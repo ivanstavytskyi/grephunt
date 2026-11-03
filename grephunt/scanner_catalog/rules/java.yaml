@@ -1,0 +1,296 @@
+# GrepHunt bundled Semgrep rules (java). Applied in every scan, offline.
+rules:
+- id: grephunt.java.spring.sql-injection
+  mode: taint
+  languages:
+  - java
+  severity: ERROR
+  message: Request data reaches a SQL or JPQL string. Use bound parameters (PreparedStatement with ?,
+    :name in JPQL, JdbcTemplate arguments) instead of string concatenation.
+  metadata:
+    cwe:
+    - CWE-89
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - spring
+    - jdbc
+    - jpa
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION(...) $TYPE $SOURCE, ...) { ... }
+
+          '
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION $TYPE $SOURCE, ...) { ... }
+
+          '
+    - metavariable-regex:
+        metavariable: $ANNOTATION
+        regex: ^(RequestParam|PathVariable|RequestBody|RequestHeader|CookieValue|QueryParam|PathParam|FormParam|HeaderParam)$
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?!(int|long|short|byte|boolean|double|float|Integer|Long|Short|Byte|Boolean|Double|Float|UUID|LocalDate|LocalDateTime)$)
+    - pattern: $SOURCE
+  - pattern: (HttpServletRequest $REQ).getParameter(...)
+  - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+  - pattern: (HttpServletRequest $REQ).getHeader(...)
+  - pattern: (HttpServletRequest $REQ).getQueryString()
+  - pattern: (HttpServletRequest $REQ).getCookies()
+  pattern-sanitizers:
+  - pattern: Integer.parseInt(...)
+  - pattern: Long.parseLong(...)
+  - pattern: Integer.valueOf(...)
+  - pattern: Long.valueOf(...)
+  - pattern: UUID.fromString(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: (Statement $STMT).executeQuery($QUERY)
+      - pattern: (Statement $STMT).executeUpdate($QUERY, ...)
+      - pattern: (Statement $STMT).execute($QUERY, ...)
+      - pattern: (Statement $STMT).addBatch($QUERY)
+      - pattern: (Connection $CONN).prepareStatement($QUERY, ...)
+      - pattern: (Connection $CONN).prepareCall($QUERY, ...)
+      - pattern: $EM.createQuery($QUERY, ...)
+      - pattern: $EM.createNativeQuery($QUERY, ...)
+      - pattern: (JdbcTemplate $JDBC).$METHOD($QUERY, ...)
+      - pattern: (NamedParameterJdbcTemplate $JDBC).$METHOD($QUERY, ...)
+    - focus-metavariable: $QUERY
+- id: grephunt.java.spring.command-injection
+  mode: taint
+  languages:
+  - java
+  severity: ERROR
+  message: Request data reaches an operating system command. Pass arguments as a list to ProcessBuilder
+    without a shell, and check them against an allowlist.
+  metadata:
+    cwe:
+    - CWE-78
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - spring
+    - servlet
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION(...) $TYPE $SOURCE, ...) { ... }
+
+          '
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION $TYPE $SOURCE, ...) { ... }
+
+          '
+    - metavariable-regex:
+        metavariable: $ANNOTATION
+        regex: ^(RequestParam|PathVariable|RequestBody|RequestHeader|CookieValue|QueryParam|PathParam|FormParam|HeaderParam)$
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?!(int|long|short|byte|boolean|double|float|Integer|Long|Short|Byte|Boolean|Double|Float|UUID|LocalDate|LocalDateTime)$)
+    - pattern: $SOURCE
+  - pattern: (HttpServletRequest $REQ).getParameter(...)
+  - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+  - pattern: (HttpServletRequest $REQ).getHeader(...)
+  - pattern: (HttpServletRequest $REQ).getQueryString()
+  - pattern: (HttpServletRequest $REQ).getCookies()
+  pattern-sanitizers:
+  - pattern: Integer.parseInt(...)
+  - pattern: Long.parseLong(...)
+  - pattern: Integer.valueOf(...)
+  - pattern: Long.valueOf(...)
+  - pattern: UUID.fromString(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: Runtime.getRuntime().exec($CMD, ...)
+      - pattern: new ProcessBuilder($CMD, ...)
+      - pattern: (ProcessBuilder $PB).command($CMD, ...)
+    - focus-metavariable: $CMD
+- id: grephunt.java.spring.path-traversal
+  mode: taint
+  languages:
+  - java
+  severity: ERROR
+  message: Request data is used as a file path. Normalize it and check that the result stays under the
+    base folder before opening the file.
+  metadata:
+    cwe:
+    - CWE-22
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - spring
+    - servlet
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION(...) $TYPE $SOURCE, ...) { ... }
+
+          '
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION $TYPE $SOURCE, ...) { ... }
+
+          '
+    - metavariable-regex:
+        metavariable: $ANNOTATION
+        regex: ^(RequestParam|PathVariable|RequestBody|RequestHeader|CookieValue|QueryParam|PathParam|FormParam|HeaderParam)$
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?!(int|long|short|byte|boolean|double|float|Integer|Long|Short|Byte|Boolean|Double|Float|UUID|LocalDate|LocalDateTime)$)
+    - pattern: $SOURCE
+  - pattern: (HttpServletRequest $REQ).getParameter(...)
+  - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+  - pattern: (HttpServletRequest $REQ).getHeader(...)
+  - pattern: (HttpServletRequest $REQ).getQueryString()
+  - pattern: (HttpServletRequest $REQ).getCookies()
+  pattern-sanitizers:
+  - pattern: FilenameUtils.getName(...)
+  - pattern: (Path $P).getFileName()
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: new java.io.File($PATH, ...)
+      - pattern: new java.io.File($PARENT, $PATH)
+      - pattern: new java.io.FileInputStream($PATH)
+      - pattern: new java.io.FileOutputStream($PATH, ...)
+      - pattern: new java.io.FileReader($PATH)
+      - pattern: java.nio.file.Paths.get($PATH, ...)
+      - pattern: java.nio.file.Path.of($PATH, ...)
+    - focus-metavariable: $PATH
+- id: grephunt.java.spring.ssrf
+  mode: taint
+  languages:
+  - java
+  severity: WARNING
+  message: Request data decides which URL the server fetches. Allow only known hosts so the server cannot
+    be used to reach internal services.
+  metadata:
+    cwe:
+    - CWE-918
+    owasp:
+    - A10:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - spring
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION(...) $TYPE $SOURCE, ...) { ... }
+
+          '
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION $TYPE $SOURCE, ...) { ... }
+
+          '
+    - metavariable-regex:
+        metavariable: $ANNOTATION
+        regex: ^(RequestParam|PathVariable|RequestBody|RequestHeader|CookieValue|QueryParam|PathParam|FormParam|HeaderParam)$
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?!(int|long|short|byte|boolean|double|float|Integer|Long|Short|Byte|Boolean|Double|Float|UUID|LocalDate|LocalDateTime)$)
+    - pattern: $SOURCE
+  - pattern: (HttpServletRequest $REQ).getParameter(...)
+  - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+  - pattern: (HttpServletRequest $REQ).getHeader(...)
+  - pattern: (HttpServletRequest $REQ).getQueryString()
+  - pattern: (HttpServletRequest $REQ).getCookies()
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: new java.net.URL($URL)
+      - pattern: java.net.URI.create($URL)
+      - pattern: (RestTemplate $REST).$METHOD($URL, ...)
+    - focus-metavariable: $URL
+- id: grephunt.java.spring.unsafe-deserialization
+  mode: taint
+  languages:
+  - java
+  severity: ERROR
+  message: Request data is deserialized with ObjectInputStream or XMLDecoder. Crafted objects run code
+    during deserialization. Use JSON with explicit types.
+  metadata:
+    cwe:
+    - CWE-502
+    owasp:
+    - A08:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - java
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION(...) $TYPE $SOURCE, ...) { ... }
+
+          '
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION $TYPE $SOURCE, ...) { ... }
+
+          '
+    - metavariable-regex:
+        metavariable: $ANNOTATION
+        regex: ^(RequestParam|PathVariable|RequestBody|RequestHeader|CookieValue|QueryParam|PathParam|FormParam|HeaderParam)$
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?!(int|long|short|byte|boolean|double|float|Integer|Long|Short|Byte|Boolean|Double|Float|UUID|LocalDate|LocalDateTime)$)
+    - pattern: $SOURCE
+  - pattern: (HttpServletRequest $REQ).getParameter(...)
+  - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+  - pattern: (HttpServletRequest $REQ).getHeader(...)
+  - pattern: (HttpServletRequest $REQ).getQueryString()
+  - pattern: (HttpServletRequest $REQ).getCookies()
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: new java.io.ObjectInputStream($STREAM)
+      - pattern: new java.beans.XMLDecoder($STREAM, ...)
+    - focus-metavariable: $STREAM
+- id: grephunt.java.spring.open-redirect
+  mode: taint
+  languages:
+  - java
+  severity: WARNING
+  message: Request data decides where the user is redirected. Redirect only to relative paths or to hosts
+    on an allowlist.
+  metadata:
+    cwe:
+    - CWE-601
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - spring
+    - servlet
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION(...) $TYPE $SOURCE, ...) { ... }
+
+          '
+      - pattern-inside: '$RET $METHOD(..., @$ANNOTATION $TYPE $SOURCE, ...) { ... }
+
+          '
+    - metavariable-regex:
+        metavariable: $ANNOTATION
+        regex: ^(RequestParam|PathVariable|RequestBody|RequestHeader|CookieValue|QueryParam|PathParam|FormParam|HeaderParam)$
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?!(int|long|short|byte|boolean|double|float|Integer|Long|Short|Byte|Boolean|Double|Float|UUID|LocalDate|LocalDateTime)$)
+    - pattern: $SOURCE
+  - pattern: (HttpServletRequest $REQ).getParameter(...)
+  - pattern: (HttpServletRequest $REQ).getParameterValues(...)
+  - pattern: (HttpServletRequest $REQ).getHeader(...)
+  - pattern: (HttpServletRequest $REQ).getQueryString()
+  - pattern: (HttpServletRequest $REQ).getCookies()
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: (HttpServletResponse $RESP).sendRedirect($URL)
+      - pattern: new RedirectView($URL, ...)
+      - pattern: '"redirect:" + $URL'
+    - focus-metavariable: $URL

@@ -1,0 +1,304 @@
+# GrepHunt bundled Semgrep rules (python). Applied in every scan, offline.
+rules:
+- id: grephunt.python.web.sql-injection
+  mode: taint
+  languages:
+  - python
+  severity: ERROR
+  message: Request data reaches a SQL query string. Build the query with parameters (cursor.execute("...
+    WHERE id = ?", (value,))) instead of string formatting.
+  metadata:
+    cwe:
+    - CWE-89
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - flask
+    - django
+    - sqlite3
+    - sqlalchemy
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sanitizers:
+  - pattern: int(...)
+  - pattern: float(...)
+  - pattern: uuid.UUID(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: $CURSOR.execute($QUERY, ...)
+      - pattern: $CURSOR.executemany($QUERY, ...)
+      - pattern: $CURSOR.executescript($QUERY, ...)
+      - pattern: sqlalchemy.text($QUERY, ...)
+      - pattern: $MODEL.objects.raw($QUERY, ...)
+    - focus-metavariable: $QUERY
+- id: grephunt.python.web.command-injection
+  mode: taint
+  languages:
+  - python
+  severity: ERROR
+  message: Request data reaches an operating system command. Pass arguments as a list without shell=True,
+    and check them against an allowlist.
+  metadata:
+    cwe:
+    - CWE-78
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - flask
+    - django
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sanitizers:
+  - pattern: shlex.quote(...)
+  - pattern: int(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: os.system($CMD)
+      - pattern: os.popen($CMD, ...)
+      - pattern: subprocess.$FUNC($CMD, ..., shell=True, ...)
+      - pattern: commands.getoutput($CMD)
+    - focus-metavariable: $CMD
+- id: grephunt.python.web.code-injection
+  mode: taint
+  languages:
+  - python
+  severity: ERROR
+  message: Request data is evaluated as Python code. Parse the value (json.loads, ast.literal_eval) instead
+    of running it.
+  metadata:
+    cwe:
+    - CWE-95
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - flask
+    - django
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: eval($CODE, ...)
+      - pattern: exec($CODE, ...)
+      - pattern: compile($CODE, ...)
+    - focus-metavariable: $CODE
+- id: grephunt.python.web.unsafe-deserialization
+  mode: taint
+  languages:
+  - python
+  severity: ERROR
+  message: Request data is deserialized with pickle, marshal, or yaml.load. A crafted payload runs code
+    on the server. Use JSON or yaml.safe_load.
+  metadata:
+    cwe:
+    - CWE-502
+    owasp:
+    - A08:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - flask
+    - django
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: pickle.loads($DATA, ...)
+      - pattern: pickle.load($DATA, ...)
+      - pattern: cPickle.loads($DATA, ...)
+      - pattern: marshal.loads($DATA, ...)
+      - pattern: dill.loads($DATA, ...)
+      - pattern: yaml.load($DATA, ...)
+      - pattern: yaml.unsafe_load($DATA, ...)
+    - focus-metavariable: $DATA
+- id: grephunt.python.web.path-traversal
+  mode: taint
+  languages:
+  - python
+  severity: ERROR
+  message: Request data is used as a file path. "../" in the value reaches files outside the intended
+    folder. Use werkzeug.utils.secure_filename or check the resolved path stays under the base folder.
+  metadata:
+    cwe:
+    - CWE-22
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - flask
+    - django
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sanitizers:
+  - pattern: werkzeug.utils.secure_filename(...)
+  - pattern: secure_filename(...)
+  - pattern: os.path.basename(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: open($PATH, ...)
+      - pattern: flask.send_file($PATH, ...)
+      - pattern: flask.send_from_directory($DIR, $PATH, ...)
+      - pattern: os.remove($PATH)
+      - pattern: shutil.rmtree($PATH, ...)
+    - focus-metavariable: $PATH
+- id: grephunt.python.web.ssrf
+  mode: taint
+  languages:
+  - python
+  severity: WARNING
+  message: Request data decides which URL the server fetches. An attacker can reach internal services
+    or cloud metadata. Allow only known hosts.
+  metadata:
+    cwe:
+    - CWE-918
+    owasp:
+    - A10:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - flask
+    - django
+    - requests
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: requests.$METHOD($URL, ...)
+      - pattern: httpx.$METHOD($URL, ...)
+      - pattern: urllib.request.urlopen($URL, ...)
+    - focus-metavariable: $URL
+- id: grephunt.python.flask.template-injection
+  mode: taint
+  languages:
+  - python
+  severity: ERROR
+  message: Request data is rendered as a Jinja template. Template syntax in the value runs on the server
+    (SSTI). Pass the value as a variable to a fixed template.
+  metadata:
+    cwe:
+    - CWE-1336
+    owasp:
+    - A03:2021
+    category: security
+    confidence: HIGH
+    technology:
+    - flask
+    - jinja2
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: flask.render_template_string($TEMPLATE, ...)
+      - pattern: jinja2.Template($TEMPLATE, ...)
+    - focus-metavariable: $TEMPLATE
+- id: grephunt.python.web.open-redirect
+  mode: taint
+  languages:
+  - python
+  severity: WARNING
+  message: Request data decides where the user is redirected. Phishing links can send users to another
+    site. Redirect only to relative paths or known hosts.
+  metadata:
+    cwe:
+    - CWE-601
+    owasp:
+    - A01:2021
+    category: security
+    confidence: MEDIUM
+    technology:
+    - flask
+    - django
+  pattern-sources:
+  - pattern: flask.request.$ATTR
+  - pattern: flask.request.$ATTR.get(...)
+  - pattern: flask.request.get_json(...)
+  - patterns:
+    - pattern-inside: "def $VIEW($REQUEST, ...):\n  ...\n"
+    - pattern-either:
+      - pattern: $REQUEST.GET
+      - pattern: $REQUEST.POST
+      - pattern: $REQUEST.COOKIES
+      - pattern: $REQUEST.body
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: flask.redirect($URL, ...)
+      - pattern: django.shortcuts.redirect($URL, ...)
+      - pattern: django.http.HttpResponseRedirect($URL, ...)
+    - focus-metavariable: $URL

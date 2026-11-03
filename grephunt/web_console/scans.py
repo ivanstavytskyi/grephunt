@@ -164,6 +164,8 @@ async def _execute(
         target_kind=target_kind,
         image_format=image_format,
     )
+    if target_kind == "source":
+        await _build_map(scan_id, target, sink)
     try:
         result = await run_scan(target, _scan_dir(scan_id), selected, options, on_event=sink, scan_id=scan_id)
         await asyncio.to_thread(sink.close)
@@ -182,6 +184,97 @@ async def _execute(
         await asyncio.to_thread(_mark_failed, scan_id, repr(exc))
     finally:
         _TASKS.pop(scan_id, None)
+
+
+async def _build_map(scan_id: str, target: Path, sink) -> None:
+    """Reconnaissance before the scanners: the project map. A failure here never stops the scan."""
+    from grephunt.project_map import build_project_map, write_project_map
+
+    try:
+        project_map = await asyncio.to_thread(build_project_map, target)
+        await asyncio.to_thread(write_project_map, project_map, _scan_dir(scan_id))
+    except Exception as exc:  # noqa: BLE001 - the map is optional, the scan is not.
+        sink(ScanEvent(type=EventType.MAP_READY, message=f"project map failed: {exc}"[:400], data={"ok": False}))
+        return
+    stats = project_map.stats
+    stack = ", ".join(project_map.stack.get("frameworks") or []) or "no known framework"
+    sink(
+        ScanEvent(
+            type=EventType.MAP_READY,
+            message=(
+                f"project map: {stats.get('files', 0)} files, {stats.get('import_edges', 0)} imports, "
+                f"{len(project_map.architecture.nodes)} architecture nodes ({stack})"
+            ),
+            data={"ok": True, "files": stats.get("files", 0)},
+        )
+    )
+
+
+def get_project_map(scan_id: str) -> dict | None:
+    """The saved map of a scan. None when the scan is unknown; {} when it has no map yet."""
+    if get_scan(scan_id) is None:
+        return None
+    path = DATA_DIR / "scans" / scan_id / "project_map.json"
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def get_source(scan_id: str, path: str, line: int | None, end_line: int | None, context: int) -> dict | None:
+    """Lines of a scanned file around a finding, with marks from the map and other findings."""
+    from grephunt.web_console.source_view import load_map, read_source
+
+    found = get_scan(scan_id)
+    if found is None:
+        return None
+    target = Path(found.get("target_path") or "")
+    return read_source(target, path, line, end_line, context, get_findings(scan_id) or [], load_map(_scan_dir(scan_id)))
+
+
+MAX_OVERLAY_BYTES = 2_000_000
+
+
+def get_map_overlay(scan_id: str) -> dict | None:
+    """Edits a person made on the map (positions, labels, notes, own blocks and links). None for an unknown scan."""
+    if get_scan(scan_id) is None:
+        return None
+    path = _scan_dir(scan_id) / "map_overlay.json"
+    if not path.is_file():
+        return {"version": 1, "views": {}}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"version": 1, "views": {}}
+
+
+def save_map_overlay(scan_id: str, overlay: dict) -> dict | None:
+    """Store the edits apart from project_map.json, so rebuilding the map keeps them."""
+    if get_scan(scan_id) is None:
+        return None
+    text = json.dumps(overlay, ensure_ascii=False)
+    if len(text.encode("utf-8")) > MAX_OVERLAY_BYTES:
+        raise ValueError("the map edits are too large to save")
+    directory = _scan_dir(scan_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = directory / "map_overlay.json.tmp"
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(directory / "map_overlay.json")
+    return overlay
+
+
+def rebuild_project_map(scan_id: str) -> dict | None:
+    """Build the map again from the scan's target, for scans made before the map existed."""
+    from grephunt.project_map import build_project_map, write_project_map
+
+    found = get_scan(scan_id)
+    if found is None:
+        return None
+    target = Path(found.get("target_path") or "")
+    if not target.is_dir():
+        raise ValueError("the scanned folder is no longer on this machine")
+    project_map = build_project_map(target, label=found.get("target_label"))
+    write_project_map(project_map, _scan_dir(scan_id))
+    return project_map.model_dump(mode="json")
 
 
 def _save_result(scan_id: str, result: ScanResult, partial: bool) -> None:
@@ -292,7 +385,11 @@ def get_findings(scan_id: str) -> list[dict] | None:
             for item in findings
             if (item.fingerprint, item.correlation_key) not in dismissed
         ]
-        return [json.loads(item.body) for item in visible]
+        findings_out = [json.loads(item.body) for item in visible]
+    from grephunt.project_map.finding_context import attach_context
+    from grephunt.web_console.source_view import load_map
+
+    return attach_context(findings_out, load_map(_scan_dir(scan_id)))
 
 
 def dismiss_findings(scan_id: str, keys: list[tuple[str, str]]) -> int | None:
