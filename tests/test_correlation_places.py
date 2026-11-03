@@ -136,3 +136,39 @@ def test_tfidf_text_similarity():
     assert cosine(vectors[0], vectors[1]) > cosine(vectors[0], vectors[2])
     groups = cluster_by_text(["same text here", "same text here"], [5, 40], window=3)
     assert len(groups) == 2  # far apart lines never merge
+
+
+class _MeaningModel:
+    """Stand-in for the sentence-embedding model: two texts mean the same when they share a topic word."""
+
+    TOPICS = ("monitoring", "egress", "cookie")
+
+    def encode(self, texts):
+        return [[1.0 if topic in text.lower() else 0.0 for topic in self.TOPICS] + [0.01] for text in texts]
+
+
+def test_embeddings_join_findings_that_say_the_same_in_other_words(monkeypatch):
+    from grephunt.finding_model import embeddings
+
+    reports = [
+        _iac("kics", "Q1", "terraform/ec2/main.tf", 10, "EC2 Instance Monitoring Disabled"),
+        _iac("checkov", "CKV_AWS_126", "terraform/ec2/main.tf", 11, "Ensure that detailed monitoring is enabled for EC2 instances"),
+        _iac("checkov", "CKV_AWS_135", "terraform/ec2/main.tf", 11, "Ensure that EC2 is EBS optimized"),
+    ]
+    monkeypatch.setattr(embeddings, "get_model", lambda: None)
+    without = correlate([item.model_copy(deep=True) for item in reports])
+    monkeypatch.setattr(embeddings, "get_model", lambda: _MeaningModel())
+    with_model = correlate([item.model_copy(deep=True) for item in reports])
+    assert len(with_model) == 2 and len(without) >= len(with_model)
+    joined = next(item for item in with_model if len(item.confirmations) == 2)
+    assert {item.tool for item in joined.confirmations} == {"kics", "checkov"}
+
+
+def test_without_a_model_similarity_is_none(monkeypatch, tmp_path):
+    from grephunt.finding_model import embeddings
+
+    monkeypatch.setattr(embeddings, "DATA_DIR", tmp_path)
+    assert embeddings.get_model() is None
+    assert embeddings.similarity_matrix(["a", "b"]) is None
+    monkeypatch.setenv("GREPHUNT_EMBEDDINGS", "off")
+    assert not embeddings.enabled()

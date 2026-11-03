@@ -91,3 +91,17 @@ def test_taint_rules_cover_sql_injection_for_each_language():
             by_language.setdefault(language, set()).update(rule["metadata"]["cwe"])
     for language in ("python", "javascript", "php", "go", "java"):
         assert {"CWE-89", "CWE-78"} <= by_language[language], language
+
+
+def test_semgrep_folder_prefix_is_removed_from_rule_ids():
+    from grephunt.finding_model.record import Finding, Location, Severity
+    from grephunt.scanner_hooks.semgrep import SemgrepHook
+
+    finding = Finding(tool="semgrep", rule_id="rules.grephunt.grephunt.python.web.sql-injection", title="rules.grephunt.grephunt.python.web.sql-injection",
+                      severity=Severity.HIGH, location=Location(path="app.py", start_line=1))
+    refined = SemgrepHook().refine_finding(finding, {}, {})
+    assert refined.rule_id == refined.title == "grephunt.python.web.sql-injection"
+    user = finding.model_copy(update={"rule_id": "rules.0.my-rule"})
+    assert SemgrepHook().refine_finding(user, {}, {}).rule_id == "my-rule"
+    registry = finding.model_copy(update={"rule_id": "python.flask.security.injection.tainted-sql-string"})
+    assert SemgrepHook().refine_finding(registry, {}, {}).rule_id == registry.rule_id

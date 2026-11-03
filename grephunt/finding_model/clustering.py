@@ -116,9 +116,12 @@ def cluster_by_lines(lines: Sequence[int | None], window: int | None) -> list[li
 
 
 def cluster_by_text(texts: Sequence[str], lines: Sequence[int | None], window: int, threshold: float = TEXT_THRESHOLD,
-                    same_source: Callable[[int, int], bool] | None = None) -> list[list[int]]:
-    """Agglomerative (single-link) clustering on TF-IDF cosine similarity, limited to close lines.
+                    same_source: Callable[[int, int], bool] | None = None,
+                    semantic: Sequence[Sequence[float]] | None = None, semantic_threshold: float = 0.78) -> list[list[int]]:
+    """Agglomerative (single-link) clustering on text similarity, limited to close lines.
 
+    Two findings join when their TF-IDF cosine passes threshold, or, when sentence
+    embeddings are available (semantic: a similarity matrix), when their meaning does.
     same_source(i, j) True means both reports come from one tool and rule; they join
     only on the same line, so one rule firing twice in a function stays two findings.
     """
@@ -132,6 +135,6 @@ def cluster_by_text(texts: Sequence[str], lines: Sequence[int | None], window: i
                 continue
             if same_source and same_source(left, right) and line_left != line_right:
                 continue
-            if cosine(vectors[left], vectors[right]) >= threshold:
+            if cosine(vectors[left], vectors[right]) >= threshold or (semantic is not None and semantic[left][right] >= semantic_threshold):
                 union.union(left, right)
     return union.groups()
