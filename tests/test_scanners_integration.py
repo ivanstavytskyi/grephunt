@@ -142,3 +142,21 @@ def test_dependency_scanners_find_the_old_flask(tmp_path: Path):
     sbom = asyncio.run(run_scan(ROOT / "samples" / "vuln_flask", tmp_path / "syft", [tools["syft"]], options))
     assert sbom.runs[0].status.value == "success", sbom.runs[0].error
     assert (tmp_path / "syft" / "syft.cdx.json").is_file()
+
+
+@pytest.mark.skipif(not _docker_ready(), reason="needs a running Docker daemon")
+def test_image_tar_is_scanned_by_image_capable_scanners(tmp_path: Path):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from image_fixture import docker_archive
+
+    image = docker_archive(tmp_path / "app.tar")
+    tools = load_tools()
+    options = ScanOptions(excludes=[], use_docker=True, target_kind="image", image_format="docker")
+    for name in ("trivy", "grype"):
+        result = asyncio.run(run_scan(image, tmp_path / name, [tools[name]], options))
+        assert result.runs[0].status.value == "success", (name, result.runs[0].error)
+        assert any((item.package or "").lower() == "flask" for item in result.findings), name
+    sbom = asyncio.run(run_scan(image, tmp_path / "syft", [tools["syft"]], options))
+    assert sbom.runs[0].status.value == "success", sbom.runs[0].error

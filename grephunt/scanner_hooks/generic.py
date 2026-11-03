@@ -18,6 +18,7 @@ from grephunt.execution.cache import cache_dir
 from grephunt.execution.request import RunRequest
 from grephunt.finding_model.record import Finding, Severity
 from grephunt.scan_pipeline.converters import convert
+from grephunt.scan_pipeline.image_archive import image_reference
 from grephunt.scan_pipeline.options import ScanOptions
 from grephunt.scanner_catalog.descriptor import ToolDescriptor
 
@@ -101,7 +102,8 @@ class GenericHook:
         return descriptor.network
 
     def extra_mounts(self, options: ScanOptions, use_docker: bool) -> list[tuple[Path, str]]:
-        if use_docker and _uses_catalog(self.descriptor.args):
+        template = self.descriptor.image_args if options.target_kind == "image" else self.descriptor.args
+        if use_docker and _uses_catalog(template):
             return [(CATALOG_DIR, CATALOG_MOUNT)]
         return []
 
@@ -110,9 +112,13 @@ class GenericHook:
             return {volume.name: volume.path for volume in descriptor.cache_volumes}
         return {volume.name: str(cache_dir(volume.name)) for volume in descriptor.cache_volumes}
 
+    def supports_image(self) -> bool:
+        return self.descriptor.image_args is not None
+
     def build_args(self, descriptor: ToolDescriptor, src: str, output: str, options: ScanOptions, use_docker: bool) -> list[str]:
-        if descriptor.args is None:
-            raise ValueError(f"{descriptor.name}.yaml has no args and no Python hook")
+        template = descriptor.image_args if options.target_kind == "image" else descriptor.args
+        if template is None:
+            raise ValueError(f"{descriptor.name}.yaml has no arguments for a {options.target_kind} scan")
         path_type = PurePosixPath if use_docker else Path
         written = output
         if descriptor.raw_output_filename:
@@ -122,8 +128,9 @@ class GenericHook:
             "output": written,
             "out_dir": str(path_type(output).parent),
             "catalog": CATALOG_MOUNT if use_docker else str(CATALOG_DIR),
+            "image_ref": image_reference(src, options.image_format),
         }
-        return expand(descriptor.args, values, self._caches(descriptor, use_docker))
+        return expand(template, values, self._caches(descriptor, use_docker))
 
     async def prepare(self, descriptor: ToolDescriptor, runner, use_docker: bool) -> str | None:
         step = descriptor.prepare

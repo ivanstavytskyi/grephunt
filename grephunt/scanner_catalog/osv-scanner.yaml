@@ -30,6 +30,18 @@ args:
   - "{output}"
   - "{src}"
 output_filename: osv-scanner.sarif
+image_args:
+  - scan
+  - image
+  - --archive
+  - --offline
+  - --download-offline-databases
+  - --allow-no-lockfiles
+  - --format
+  - sarif
+  - --output-file
+  - "{output}"
+  - "{src}"
 # 0: nothing found, 1: vulnerabilities found. 127 is an error (for example, no database),
 # and osv-scanner still writes an empty report then.
 ok_exit_codes: [0, 1]

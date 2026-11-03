@@ -21,6 +21,12 @@ args:
   - "./.git/**"
   - --quiet
 output_format: cyclonedx-sbom
+image_args:
+  - scan
+  - "{image_ref}"
+  - --output
+  - "cyclonedx-json={output}"
+  - --quiet
 raw_output_filename: syft.cdx.json
 output_filename: syft.sarif
 ok_exit_codes: [0]

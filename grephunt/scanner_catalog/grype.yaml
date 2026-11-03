@@ -21,6 +21,12 @@ args:
   - --exclude
   - "./.git/**"
 output_filename: grype.sarif
+image_args:
+  - "{image_ref}"
+  - --output
+  - sarif
+  - --file
+  - "{output}"
 ok_exit_codes: [0]
 target_mount: /src
 output_mount: /out

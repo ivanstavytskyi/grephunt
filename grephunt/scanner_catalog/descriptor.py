@@ -61,6 +61,9 @@ class ToolDescriptor(BaseModel):
     Placeholders: {src} project, {output} the file the tool writes, {out_dir},
     {cache:NAME} a cache volume, {catalog} this directory (read-only).
     """
+    image_args: list[str] | None = None
+    """Argument template for a container image tar. {src} is the tar file, {image_ref} is
+    docker-archive:<tar> or oci-archive:<tar>. Without it the tool skips image scans."""
     output_source: Literal["file", "stdout"] = "file"
     """stdout: the core saves the tool output to the file instead of the tool."""
     output_format: str = "sarif"
