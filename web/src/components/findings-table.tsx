@@ -7,8 +7,8 @@ import { locationLabel } from "@/lib/utils";
 import { ExploitabilityMeter } from "@/components/exploitability";
 
 const ROW_HEIGHT = 64;
-const COLUMNS_EDIT = "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_4.5rem_7rem]";
-const COLUMNS_VIEW = "grid-cols-[5.5rem_6rem_minmax(7rem,11rem)_minmax(0,1fr)_4.5rem_7rem]";
+const COLUMNS_EDIT = "grid-cols-[2.25rem_5.5rem_6rem_minmax(7rem,11rem)_minmax(14rem,1fr)_4.5rem_7rem]";
+const COLUMNS_VIEW = "grid-cols-[5.5rem_6rem_minmax(7rem,11rem)_minmax(14rem,1fr)_4.5rem_7rem]";
 
 function rowTitle(finding: Finding): string {
   if (finding.package) return `${finding.package}@${finding.installed_version ?? ""}`;
@@ -84,7 +84,7 @@ export const FindingsTable = memo(function FindingsTable({
 
   return (
     <div ref={parentRef} className="max-h-[640px] overflow-auto rounded-lg border border-ink-line">
-      <div className={`sticky top-0 z-10 grid ${COLUMNS} border-b border-ink-line bg-ink-panel text-[11px] uppercase tracking-wide text-ink-muted`}>
+      <div className={`sticky top-0 z-10 grid min-w-[46rem] ${COLUMNS} border-b border-ink-line bg-ink-panel text-[11px] uppercase tracking-wide text-ink-muted`}>
         {editing && (
         <div className="flex items-center justify-center">
           <input
@@ -104,7 +104,7 @@ export const FindingsTable = memo(function FindingsTable({
         <div className="px-3 py-2 font-medium" title="Estimated exploitability">Exploit</div>
         <div className="px-3 py-2 font-medium">Tool</div>
       </div>
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+      <div className="min-w-[46rem]" style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const finding = rows[virtualRow.index];
           const active =
