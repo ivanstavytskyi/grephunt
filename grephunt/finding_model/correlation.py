@@ -10,6 +10,7 @@ import re
 from collections import Counter
 
 from grephunt.finding_model.clustering import cluster_by_lines, cluster_by_text
+from grephunt.finding_model.embeddings import EMBEDDING_THRESHOLD, similarity_matrix
 from grephunt.finding_model.record import Category, Confirmation, Finding, Severity
 from grephunt.finding_model.vuln_class import clean_path, iac_topic, vulnerability_class
 
@@ -248,7 +249,8 @@ def _correlate_places(findings: list[Finding], anchors: dict[str, set[int]]) -> 
         def same_source(left: int, right: int, sources: list[tuple[str, str]] = sources) -> bool:
             return sources[left] == sources[right]
 
-        for indices in cluster_by_text(texts, lines, window, same_source=same_source):
+        semantic = similarity_matrix([f"{item.title}. {item.message[:200]}" for item in group]) if len(group) > 1 else None
+        for indices in cluster_by_text(texts, lines, window, same_source=same_source, semantic=semantic, semantic_threshold=EMBEDDING_THRESHOLD):
             part = [group[index] for index in indices]
             merged.append(_merge_cluster(part, _place(part, set())))
     return _fold_repeats(merged, kinds)

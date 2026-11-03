@@ -63,6 +63,78 @@ def _print_event(event: ScanEvent) -> None:
     print(f"{tool}{event.message}", flush=True)
 
 
+_MODEL_EXAMPLES = [
+    ("Security group rule allows unrestricted egress to any IP address", "Security Group With Unrestricted Egress", True),
+    ("EC2 Instance Monitoring Disabled", "Ensure that detailed monitoring is enabled for EC2 instances", True),
+    ("Unpinned Actions Full Length Commit SHA", "unpinned action reference (unpinned-uses)", True),
+    ("IAM Database Auth Not Enabled", "Ensure RDS database has IAM authentication enabled", True),
+    ("Cookie without the Secure flag", "Debug backdoor left in a TODO comment", False),
+    ("Variable Without Description", "Ensure that RDS instances have Multi-AZ enabled", False),
+]
+
+
+def _models(action: str, scan_id: str | None) -> int:
+    from grephunt.finding_model import embeddings
+
+    if action == "download":
+        try:
+            folder = embeddings.download()
+        except ImportError:
+            print("Install the package first: pip install model2vec")
+            return 1
+        except Exception as exc:  # noqa: BLE001  network, disk, or a missing model: report and stop
+            print(f"Download failed: {exc}")
+            return 1
+        print(f"Model saved to {folder}. Scans now cluster unclassified findings by meaning.")
+        return 0
+
+    model = embeddings.get_model()
+    if model is None:
+        print(f"No model in {embeddings.model_dir()}. Run: python -m grephunt models download")
+        return 1
+    threshold = embeddings.EMBEDDING_THRESHOLD
+    if scan_id is None:
+        texts = [text for left, right, _ in _MODEL_EXAMPLES for text in (left, right)]
+        matrix = embeddings.similarity_matrix(texts, model)
+        for index, (left, right, same) in enumerate(_MODEL_EXAMPLES):
+            score = matrix[2 * index][2 * index + 1]
+            verdict = "join" if score >= threshold else "apart"
+            mark = "ok" if (score >= threshold) == same else "MISS"
+            print(f"{score:.2f} {verdict:5} {mark:4} | {left} | {right}")
+        print(f"threshold {threshold}")
+        return 0
+
+    import json
+
+    from grephunt.config import DATA_DIR
+    from grephunt.finding_model.vuln_class import clean_path, iac_topic, vulnerability_class
+
+    path = DATA_DIR / "scans" / scan_id / "findings.json"
+    if not path.is_file():
+        print(f"No findings for scan {scan_id} at {path}")
+        return 1
+    data = json.loads(path.read_text(encoding="utf-8"))
+    items = data.get("findings", data) if isinstance(data, dict) else data
+    pairs = []
+    by_file: dict[str, list[dict]] = {}
+    for item in items:
+        kind = iac_topic(item["rule_id"], item["title"], item.get("message", "")) if item.get("category") == "misconfig" else vulnerability_class(item.get("cwe", []), item["rule_id"], item["title"])
+        if kind is None:
+            by_file.setdefault(clean_path((item.get("location") or {}).get("path") or ""), []).append(item)
+    for group in by_file.values():
+        if len(group) < 2:
+            continue
+        matrix = embeddings.similarity_matrix([f"{item['title']}. {item.get('message', '')[:200]}" for item in group], model)
+        for left in range(len(group)):
+            for right in range(left + 1, len(group)):
+                pairs.append((matrix[left][right], group[left], group[right]))
+    pairs.sort(key=lambda pair: -pair[0])
+    for score, left, right in pairs[:25]:
+        print(f"{score:.2f} {'join' if score >= threshold else 'apart':5} | {left['tool']}: {left['title'][:60]} | {right['tool']}: {right['title'][:60]}")
+    print(f"{len(pairs)} pairs of unclassified findings in the same file; threshold {threshold}")
+    return 0
+
+
 def main() -> None:
     tools = load_tools()
     parser = argparse.ArgumentParser(prog="grephunt")
@@ -80,6 +152,9 @@ def main() -> None:
     project_map = sub.add_parser("map", help="build the project map (files, imports, architecture) without scanning")
     project_map.add_argument("project", help="path to the project")
     project_map.add_argument("-o", "--out", type=Path, default=Path("reports"))
+    models = sub.add_parser("models", help="sentence-embedding model for clustering findings by meaning")
+    models.add_argument("action", choices=["download", "check"], help="download: fetch the model once; check: show how it groups findings")
+    models.add_argument("--scan", help="scan id whose findings check compares (default: built-in examples)")
     doctor = sub.add_parser("doctor", help="check Docker and remove stale scanner containers")
     doctor.add_argument(
         "--restart-docker",
@@ -104,6 +179,9 @@ def main() -> None:
         print(f"Architecture: {len(built.architecture.nodes)} nodes, {len(built.architecture.edges)} edges")
         print(f"Map:   {written}")
         return
+
+    if args.cmd == "models":
+        sys.exit(_models(args.action, args.scan))
 
     if args.cmd == "doctor":
         from grephunt.doctor import run_doctor
